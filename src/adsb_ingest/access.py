@@ -192,8 +192,12 @@ class AccessStore(PostgresStore):
                 and (normalized_role != "ADMIN" or not active)
             ):
                 active_admins = connection.execute(
-                    "SELECT count(*) FROM heligent_user WHERE role = 'ADMIN' AND active"
-                ).fetchone()[0]
+                    """
+                    SELECT count(*) AS active_admins
+                    FROM heligent_user
+                    WHERE role = 'ADMIN' AND active
+                    """
+                ).fetchone()["active_admins"]
                 if active_admins <= 1:
                     raise ValueError("The final active administrator cannot be removed")
             row = connection.execute(
@@ -234,8 +238,12 @@ class AccessStore(PostgresStore):
                 return None
             if existing["role"] == "ADMIN":
                 active_admins = connection.execute(
-                    "SELECT count(*) FROM heligent_user WHERE role = 'ADMIN' AND active"
-                ).fetchone()[0]
+                    """
+                    SELECT count(*) AS active_admins
+                    FROM heligent_user
+                    WHERE role = 'ADMIN' AND active
+                    """
+                ).fetchone()["active_admins"]
                 if active_admins <= 1:
                     raise ValueError("The final active administrator cannot be removed")
             row = connection.execute(

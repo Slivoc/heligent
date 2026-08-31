@@ -624,6 +624,12 @@ class PostgresIntegrationTests(unittest.TestCase):
         )
         assert deactivated is not None
         self.assertFalse(deactivated["active"])
+        access.upsert_user("spare-admin@example.com", role="ADMIN")
+        deactivated_admin = access.deactivate_user(
+            "admin@example.com", actor_email="spare-admin@example.com"
+        )
+        assert deactivated_admin is not None
+        self.assertFalse(deactivated_admin["active"])
         with self.assertRaisesRegex(ValueError, "own account"):
             access.deactivate_user("admin@example.com", actor_email="admin@example.com")
 
