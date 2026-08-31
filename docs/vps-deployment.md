@@ -197,9 +197,12 @@ The policy strips spoofed identity headers, runs OAuth, then adds the verified
 email and the shared proxy secret. Heligent independently checks that email
 against its active-user table.
 
-Google OAuth can be used instead by changing the provider to `google`, using a
-Google OAuth client, and using Google's user-info email/profile scopes. The
-Heligent side is unchanged because it consumes only a verified email header.
+Google OAuth can be used instead. For ngrok's managed Google application,
+change the provider to `google` and remove `client_id`, `client_secret`, and the
+entire `scopes` block; the managed application uses fixed identity scopes. For
+a custom Google OAuth application, provide its client ID/secret and Google's
+user-info email/profile scopes. The Heligent side is unchanged because it
+consumes only a verified email header.
 
 ## 5. Start the maintenance UI
 
