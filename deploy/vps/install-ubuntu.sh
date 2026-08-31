@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+COHOST_SPROUTT=false
+case "${1:-}" in
+  "") ;;
+  --cohost-sproutt) COHOST_SPROUTT=true ;;
+  *)
+    echo "Usage: sudo bash deploy/vps/install-ubuntu.sh [--cohost-sproutt]" >&2
+    exit 2
+    ;;
+esac
+
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run this installer with sudo." >&2
   exit 1
@@ -16,9 +26,29 @@ cd "${APP_ROOT}"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y \
-  ca-certificates curl git jq openssl ufw postgresql postgresql-contrib \
+packages=(
+  ca-certificates curl git jq openssl ufw
   python3 python3-venv python3-dev build-essential
+)
+if ! command -v psql >/dev/null 2>&1; then
+  packages+=(postgresql postgresql-contrib)
+fi
+apt-get install -y "${packages[@]}"
+
+if ! systemctl is-active --quiet postgresql; then
+  echo "PostgreSQL must be running before Heligent can be installed." >&2
+  exit 1
+fi
+if [[ "${COHOST_SPROUTT}" == true ]]; then
+  if ! systemctl is-active --quiet sproutt; then
+    echo "--cohost-sproutt requires the existing sproutt service to be active." >&2
+    exit 1
+  fi
+  if [[ ! -d /srv/sproutt ]]; then
+    echo "--cohost-sproutt requires the existing /srv/sproutt deployment." >&2
+    exit 1
+  fi
+fi
 
 if ! id heligent >/dev/null 2>&1; then
   useradd --system --user-group --home-dir /srv/heligent --no-create-home \
@@ -81,9 +111,22 @@ install -o root -g root -m 0644 \
   /etc/systemd/system/heligent-intelligence-api.service
 install -o root -g root -m 0644 \
   deploy/vps/heligent-ngrok.service /etc/systemd/system/heligent-ngrok.service
+
+if [[ "${COHOST_SPROUTT}" == true ]]; then
+  for service in heligent-web heligent-intelligence-api heligent-ngrok; do
+    install -d -o root -g root -m 0755 \
+      "/etc/systemd/system/${service}.service.d"
+    install -o root -g root -m 0644 \
+      "deploy/vps/cohost-sproutt/${service}.conf" \
+      "/etc/systemd/system/${service}.service.d/cohost-sproutt.conf"
+  done
+fi
 systemctl daemon-reload
 
 echo
 echo "Base installation complete. Services have not been started."
+if [[ "${COHOST_SPROUTT}" == true ]]; then
+  echo "Sproutt co-host resource controls were installed."
+fi
 echo "Next: edit /etc/heligent/*.env and ngrok-traffic-policy.yml,"
 echo "install/configure ngrok and Tailscale, then enable the services."

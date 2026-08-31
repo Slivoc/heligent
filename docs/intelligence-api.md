@@ -7,8 +7,10 @@ legs.
 
 ## Transport and authentication
 
-The service binds to `127.0.0.1:5100`. In production it is published only with
-Tailscale Serve. Every `/api/v1/*` request requires:
+The service binds to `127.0.0.1:5100`. When Heligent and Sproutt temporarily
+share a VPS, Sproutt uses that loopback address directly. On separate hosts it
+is published privately with Tailscale Serve. It is never exposed through a
+public nginx site or Tailscale Funnel. Every `/api/v1/*` request requires:
 
 ```http
 Authorization: Bearer <HELIGENT_API_TOKEN>

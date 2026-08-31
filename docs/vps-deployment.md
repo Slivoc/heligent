@@ -3,14 +3,16 @@
 ## Recommended host
 
 Use **Ubuntu Server 24.04 LTS (64-bit)**. It is a conservative fit for the
-Python 3.12 and PostgreSQL 16 packages used by this deployment and receives LTS
+Python 3.12 and PostgreSQL packages used by this deployment and receives LTS
 security maintenance. A practical starting size is 4 vCPU, 16 GB RAM and at
 least 250 GB of NVMe storage. Prefer 8 vCPU/32 GB RAM for sustained backfills.
 Size disk from measured PostgreSQL growth before committing to long retention;
 the Raspberry Pi remains the long-term store for raw ADS-B files.
 
-This deployment intentionally runs only Heligent on this VPS. Sproutt remains
-on its own VPS and reaches Heligent's service API over Tailscale.
+The preferred long-term shape runs Heligent on its own VPS. A supported
+temporary mode can instead co-host it on Sproutt's VPS without merging the two
+products. Co-hosting still uses separate Linux/PostgreSQL roles, databases,
+virtual environments, configuration, services and release cycles.
 
 ## Network shape
 
@@ -19,13 +21,14 @@ Only SSH should listen publicly on the VPS itself:
 - `127.0.0.1:5080`: maintenance UI and ingestion worker;
 - ngrok outbound tunnel: public HTTPS UI with Microsoft/Google sign-in;
 - `127.0.0.1:5100`: versioned intelligence API;
-- Tailscale Serve: private HTTPS proxy from Sproutt to port 5100;
+- separate VPS: Tailscale Serve privately proxies Sproutt to port 5100;
+- Sproutt co-host: Sproutt calls port 5100 over loopback;
 - PostgreSQL: local Unix socket only;
 - Raspberry Pi feeder: private outbound HTTPS over Tailscale.
 
 Colleagues do **not** install Tailscale to use the maintenance UI. They open the
-ngrok URL and sign in. Tailscale is needed only on infrastructure (Heligent,
-Sproutt and the Pi) and on administrator devices that use it for SSH.
+ngrok URL and sign in. Tailscale remains useful for infrastructure connections
+to the Pi and, after Heligent moves, between the two VPSs.
 
 Do not open 5080, 5100 or 5432 in the VPS firewall. Do not use Tailscale Funnel
 for the intelligence API.
@@ -82,19 +85,43 @@ The compiled SPA is included. Node.js is not required on the VPS.
 
 ## 2. Install the application and PostgreSQL
 
-Review the installer, then run it from the repository:
+Review the installer, then run it from the repository. On a dedicated VPS use:
 
 ```bash
 cd /srv/heligent
 sudo bash deploy/vps/install-ubuntu.sh
 ```
 
-It installs OS/Python/PostgreSQL dependencies, creates the unprivileged Linux
-and PostgreSQL role `heligent`, creates `heligent_adsb`, installs the Python
-package into `/srv/heligent/.venv`, applies every database migration, installs
-the three systemd units, and copies configuration templates only when their
-destination does not already exist. It deliberately does not start anything
-while secrets are placeholders.
+On the existing Sproutt VPS use the explicit co-host mode:
+
+```bash
+cd /srv/heligent
+sudo bash deploy/vps/install-ubuntu.sh --cohost-sproutt
+```
+
+Before the first co-host installation, confirm that the latest scheduled
+Sproutt backup completed and record current free disk/RAM. Do not stop Sproutt:
+
+```bash
+systemctl status sproutt postgresql --no-pager
+free -h
+df -h /
+sudo ss -lntp
+```
+
+It installs missing OS/Python dependencies, creates the unprivileged Linux and
+PostgreSQL role `heligent`, creates `heligent_adsb`, installs the Python package
+into `/srv/heligent/.venv`, applies every database migration, installs the three
+systemd units, and copies configuration templates only when their destination
+does not already exist. Existing PostgreSQL is reused. It deliberately does
+not start anything while secrets are placeholders.
+
+Co-host mode first requires the existing `/srv/sproutt` deployment and active
+`sproutt` service. It adds systemd drop-ins that give the ingestion worker lower
+CPU and disk-I/O priority, cap its memory at 3 GB, cap the API at 1 GB, reduce
+the API thread count, and make Heligent preferable to Sproutt under out-of-
+memory pressure. It does not edit nginx, UFW, Sproutt files or the `sproutt`
+database.
 
 Local PostgreSQL uses peer authentication. The service does not need a database
 password and PostgreSQL is not exposed to the network.
@@ -212,6 +239,29 @@ cannot be removed or demoted.
 
 ## 6. Configure the private Sproutt API
 
+### Sproutt co-host
+
+Start the loopback-only API:
+
+```bash
+sudo systemctl enable --now heligent-intelligence-api.service
+```
+
+Put these values in Sproutt's server environment:
+
+```text
+AVIATION_INTELLIGENCE_API_URL=http://127.0.0.1:5100
+AVIATION_INTELLIGENCE_API_TOKEN=<same value as HELIGENT_API_TOKEN>
+AVIATION_INTELLIGENCE_API_TIMEOUT_SECONDS=30
+```
+
+This still uses the versioned HTTP API and bearer token. Sproutt must not read
+`heligent_adsb` directly merely because both databases currently share a
+PostgreSQL server. Localhost HTTP can later be replaced with the Tailscale URL
+without changing product logic when Heligent moves.
+
+### Separate VPS
+
 Install and join Tailscale on both VPSs:
 
 ```bash
@@ -276,7 +326,7 @@ journalctl -u heligent-web -u heligent-ngrok \
   -u heligent-intelligence-api --since today
 ```
 
-From the Sproutt VPS:
+From the Sproutt VPS (or directly over localhost in co-host mode):
 
 ```bash
 curl -H "Authorization: Bearer $AVIATION_INTELLIGENCE_API_TOKEN" \

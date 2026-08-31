@@ -55,10 +55,12 @@ The Sproutt integration contract and product-ownership boundary live in
 
 ## VPS deployment and colleague access
 
-The production shape uses Ubuntu Server 24.04 LTS and PostgreSQL 16. The
+The production shape uses Ubuntu Server 24.04 LTS and PostgreSQL. The
 maintenance UI is public only through an ngrok OAuth gateway; signed-in emails
 must also exist in Heligent's local `VIEWER`, `ANALYST`, or `ADMIN` allow-list.
-The Sproutt API remains private through Tailscale Serve plus its bearer token.
+The Sproutt API remains private through Tailscale Serve plus its bearer token,
+or through loopback while both separate products temporarily share a VPS. The
+installer has an explicit Sproutt co-host mode with systemd resource controls.
 Install scripts, hardened systemd units, configuration templates, migration and
 user-management commands, firewall checks, backups, and the complete runbook
 are in [`docs/vps-deployment.md`](docs/vps-deployment.md).
