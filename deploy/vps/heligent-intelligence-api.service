@@ -1,0 +1,25 @@
+[Unit]
+Description=Heligent helicopter intelligence API
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=heligent
+Group=heligent
+WorkingDirectory=/srv/heligent
+EnvironmentFile=/etc/heligent/heligent.env
+UMask=0027
+ExecStartPre=/srv/heligent/.venv/bin/heligent-migrate
+ExecStart=/srv/heligent/.venv/bin/heligent-intelligence-api --host 127.0.0.1 --port 5100 --threads 8
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=10min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

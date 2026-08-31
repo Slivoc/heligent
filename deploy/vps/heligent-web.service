@@ -1,0 +1,26 @@
+[Unit]
+Description=Heligent authenticated maintenance application and ingestion worker
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=heligent
+Group=heligent
+WorkingDirectory=/srv/heligent
+EnvironmentFile=/etc/heligent/heligent.env
+UMask=0027
+ExecStartPre=/srv/heligent/.venv/bin/heligent-migrate
+ExecStart=/srv/heligent/.venv/bin/adsb-web --host 127.0.0.1 --port 5080 --trusted-proxy-count 1
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=10min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/srv/heligent/data
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=Heligent ADS-B raw archive worker for %i
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/heligent
+EnvironmentFile=/etc/heligent/adsb-archive
+ExecStart=/opt/heligent/.venv/bin/adsb-archive worker --poll-seconds 30
+Restart=on-failure
+RestartSec=30
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,52 @@
+{
+  "phase": 5,
+  "title": "Natural-language analytics prototype",
+  "completed_at": "2026-08-22",
+  "runtime": {
+    "url": "http://127.0.0.1:5080",
+    "health": "ok",
+    "worker_enabled": true,
+    "package_version": "0.5.0",
+    "openai_model": "gpt-5.4-mini",
+    "openai_api_key_configured": false
+  },
+  "deliverables": [
+    "OpenAI Responses API structured query planner",
+    "server-validated curated analytics operations",
+    "coverage-aware short answer, table, and constrained chart specification",
+    "conversation-first Ask data interface",
+    "retained Phase 4 Explorer and Phase 3 Data control surfaces"
+  ],
+  "safety": {
+    "model_generated_sql": false,
+    "database_credentials_sent_to_model": false,
+    "query_results_sent_to_model": false,
+    "response_storage_requested": false,
+    "maximum_query_days": 366,
+    "maximum_result_rows": 25,
+    "supported_charts": ["line", "bar", "doughnut", "table"]
+  },
+  "local_data": {
+    "available_days": 2,
+    "latest_available_date": "2026-08-20",
+    "verified_example": {
+      "question": "Which hubs saw the most unique aircraft on 20 August 2026?",
+      "coverage_complete": true,
+      "top_hubs": [
+        {"airport": "ORD", "unique_aircraft": 1024},
+        {"airport": "DEN", "unique_aircraft": 824},
+        {"airport": "LAX", "unique_aircraft": 791},
+        {"airport": "ATL", "unique_aircraft": 750},
+        {"airport": "DFW", "unique_aircraft": 690}
+      ]
+    }
+  },
+  "verification": {
+    "python_tests": {"passed": 23, "skipped_opt_in_database_tests": 4},
+    "frontend_render_tests": 3,
+    "frontend_lint": "passed",
+    "production_dependency_vulnerabilities": 0,
+    "real_database_query_path": "passed",
+    "live_spa_bundle": "passed"
+  }
+}

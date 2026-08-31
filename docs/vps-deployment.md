@@ -1,0 +1,302 @@
+# Heligent VPS deployment
+
+## Recommended host
+
+Use **Ubuntu Server 24.04 LTS (64-bit)**. It is a conservative fit for the
+Python 3.12 and PostgreSQL 16 packages used by this deployment and receives LTS
+security maintenance. A practical starting size is 4 vCPU, 16 GB RAM and at
+least 250 GB of NVMe storage. Prefer 8 vCPU/32 GB RAM for sustained backfills.
+Size disk from measured PostgreSQL growth before committing to long retention;
+the Raspberry Pi remains the long-term store for raw ADS-B files.
+
+This deployment intentionally runs only Heligent on this VPS. Sproutt remains
+on its own VPS and reaches Heligent's service API over Tailscale.
+
+## Network shape
+
+Only SSH should listen publicly on the VPS itself:
+
+- `127.0.0.1:5080`: maintenance UI and ingestion worker;
+- ngrok outbound tunnel: public HTTPS UI with Microsoft/Google sign-in;
+- `127.0.0.1:5100`: versioned intelligence API;
+- Tailscale Serve: private HTTPS proxy from Sproutt to port 5100;
+- PostgreSQL: local Unix socket only;
+- Raspberry Pi feeder: private outbound HTTPS over Tailscale.
+
+Colleagues do **not** install Tailscale to use the maintenance UI. They open the
+ngrok URL and sign in. Tailscale is needed only on infrastructure (Heligent,
+Sproutt and the Pi) and on administrator devices that use it for SSH.
+
+Do not open 5080, 5100 or 5432 in the VPS firewall. Do not use Tailscale Funnel
+for the intelligence API.
+
+## 1. Put the release on the VPS
+
+Create `/srv/heligent` from the tested release, either by cloning the private
+repository there or copying a release archive over SSH. The directory must
+contain `pyproject.toml`, `schema/`, `src/` and `deploy/`.
+
+```bash
+sudo mkdir -p /srv/heligent
+sudo chown "$USER":"$USER" /srv/heligent
+git clone YOUR_PRIVATE_REPOSITORY_URL /srv/heligent
+cd /srv/heligent
+```
+
+The compiled SPA is included. Node.js is not required on the VPS.
+
+## 2. Install the application and PostgreSQL
+
+Review the installer, then run it from the repository:
+
+```bash
+cd /srv/heligent
+sudo bash deploy/vps/install-ubuntu.sh
+```
+
+It installs OS/Python/PostgreSQL dependencies, creates the unprivileged Linux
+and PostgreSQL role `heligent`, creates `heligent_adsb`, installs the Python
+package into `/srv/heligent/.venv`, applies every database migration, installs
+the three systemd units, and copies configuration templates only when their
+destination does not already exist. It deliberately does not start anything
+while secrets are placeholders.
+
+Local PostgreSQL uses peer authentication. The service does not need a database
+password and PostgreSQL is not exposed to the network.
+
+## 3. Configure Heligent secrets
+
+Generate independent secrets:
+
+```bash
+openssl rand -hex 32
+openssl rand -hex 32
+```
+
+Edit `/etc/heligent/heligent.env` as root:
+
+```bash
+sudoedit /etc/heligent/heligent.env
+```
+
+- Put the first value in `HELIGENT_AUTH_PROXY_SECRET`.
+- Put the second in `HELIGENT_API_TOKEN`.
+- Set `HELIGENT_BOOTSTRAP_ADMIN_EMAILS` to your sign-in email exactly as the
+  identity provider reports it.
+- Set the Pi URL/token if it is ready. Both can be added later.
+- Add an OpenAI API key only if the natural-language Explorer is required.
+
+The bootstrap list inserts missing administrators; it does not reactivate or
+overwrite an existing user on later restarts.
+
+## 4. Configure ngrok and Microsoft sign-in
+
+Install the ngrok apt package using the current commands from ngrok's Linux
+download page:
+
+```bash
+curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
+  | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+echo "deb https://ngrok-agent.s3.amazonaws.com bookworm main" \
+  | sudo tee /etc/apt/sources.list.d/ngrok.list
+sudo apt update
+sudo apt install ngrok
+```
+
+Save the account authtoken in the root-owned service config:
+
+```bash
+sudo ngrok config add-authtoken YOUR_NGROK_AUTHTOKEN \
+  --config /etc/heligent/ngrok.yml
+sudo chown root:heligent-ngrok /etc/heligent/ngrok.yml
+sudo chmod 640 /etc/heligent/ngrok.yml
+```
+
+Reserve an HTTPS ngrok URL (or attach a custom domain) and put it in
+`/etc/heligent/ngrok.env`.
+
+For production Microsoft sign-in, register a custom application in Microsoft
+Entra ID:
+
+1. Choose a multi-tenant supported account type. ngrok's OAuth integration does
+   not support Entra single-tenant applications.
+2. Add the Web redirect URI `https://idp.ngrok.com/oauth2/callback`.
+3. Grant the required user-reading permission and create a client secret.
+4. Put the application client ID and secret value in
+   `/etc/heligent/ngrok-traffic-policy.yml`.
+5. Replace the proxy-secret placeholder in that file with the exact first
+   secret generated above.
+
+Keep the ngrok config, policy and environment files mode `0640`, owned by
+`root:heligent-ngrok`. Keep `heligent.env` mode `0640`, owned by
+`root:heligent`. The separate service users prevent the gateway from reading
+the database, Pi, OpenAI and Sproutt API credentials.
+The policy strips spoofed identity headers, runs OAuth, then adds the verified
+email and the shared proxy secret. Heligent independently checks that email
+against its active-user table.
+
+Google OAuth can be used instead by changing the provider to `google`, using a
+Google OAuth client, and using Google's user-info email/profile scopes. The
+Heligent side is unchanged because it consumes only a verified email header.
+
+## 5. Start the maintenance UI
+
+```bash
+sudo systemctl enable --now heligent-web.service
+sudo systemctl enable --now heligent-ngrok.service
+sudo systemctl status heligent-web.service heligent-ngrok.service
+```
+
+Open the reserved ngrok URL. After identity-provider sign-in, the bootstrap
+administrator should see the application. `/ngrok/logout` clears the ngrok
+session cookie.
+
+Manage colleagues from the server until a user-management screen is added:
+
+```bash
+sudo -u heligent env DATABASE_URL=postgresql:///heligent_adsb \
+  /srv/heligent/.venv/bin/heligent-users add colleague@example.com --role ANALYST
+
+sudo -u heligent env DATABASE_URL=postgresql:///heligent_adsb \
+  /srv/heligent/.venv/bin/heligent-users list
+
+sudo -u heligent env DATABASE_URL=postgresql:///heligent_adsb \
+  /srv/heligent/.venv/bin/heligent-users deactivate colleague@example.com
+```
+
+Roles are:
+
+- `VIEWER`: read dashboards and run Explorer queries;
+- `ANALYST`: viewer access plus queue/reprocess ingestion and edit curated
+  operator/customer mappings;
+- `ADMIN`: analyst access plus manage users.
+
+Mutating requests are written to `heligent_audit_event` with identity, role,
+request ID, route, response status and client address. The final active admin
+cannot be removed or demoted.
+
+## 6. Configure the private Sproutt API
+
+Install and join Tailscale on both VPSs:
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+```
+
+Tag the machines separately in the Tailscale admin console (or with tagged auth
+keys), for example `tag:heligent` and `tag:sproutt`. A least-privilege grant is:
+
+```json
+{
+  "tagOwners": {
+    "tag:heligent": ["autogroup:admin"],
+    "tag:sproutt": ["autogroup:admin"]
+  },
+  "grants": [
+    {
+      "src": ["tag:sproutt"],
+      "dst": ["tag:heligent"],
+      "ip": ["tcp:443"]
+    }
+  ]
+}
+```
+
+Merge this with the existing tailnet policy rather than replacing unrelated
+rules. Then start the API and publish only that loopback port with Serve:
+
+```bash
+sudo systemctl enable --now heligent-intelligence-api.service
+sudo tailscale serve --bg 5100
+tailscale serve status
+```
+
+Put the resulting tailnet HTTPS URL in Sproutt's
+`AVIATION_INTELLIGENCE_API_URL` and put Heligent's `HELIGENT_API_TOKEN` in
+Sproutt's `AVIATION_INTELLIGENCE_API_TOKEN`. The bearer token remains required
+even inside the tailnet.
+
+## 7. Firewall and validation
+
+For a new UFW configuration, keep the current SSH session open while applying:
+
+```bash
+sudo ufw allow OpenSSH
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw enable
+sudo ss -lntp
+```
+
+Expected TCP listeners are SSH plus loopback 5080 and 5100. PostgreSQL normally
+uses a Unix socket; if it has a TCP listener, ensure it is loopback-only.
+
+Validate locally and through both gateways:
+
+```bash
+curl http://127.0.0.1:5080/health
+curl http://127.0.0.1:5100/health
+journalctl -u heligent-web -u heligent-ngrok \
+  -u heligent-intelligence-api --since today
+```
+
+From the Sproutt VPS:
+
+```bash
+curl -H "Authorization: Bearer $AVIATION_INTELLIGENCE_API_TOKEN" \
+  "$AVIATION_INTELLIGENCE_API_URL/api/v1/coverage"
+```
+
+Also queue and process one completed UTC day through the maintenance UI before
+starting a large backfill. Confirm coverage, a known-tail daily response and a
+Europe hub ranking.
+
+## Operations
+
+### Deploy an update
+
+Stop the worker before replacing code, install the tested release, migrate, and
+restart all processes:
+
+```bash
+sudo systemctl stop heligent-ngrok heligent-intelligence-api heligent-web
+cd /srv/heligent
+git pull --ff-only
+sudo /srv/heligent/.venv/bin/python -m pip install --editable /srv/heligent
+sudo -u heligent env DATABASE_URL=postgresql:///heligent_adsb \
+  /srv/heligent/.venv/bin/heligent-migrate
+sudo systemctl start heligent-web heligent-intelligence-api heligent-ngrok
+```
+
+`heligent-migrate` is idempotent and uses a PostgreSQL advisory lock, so the
+systemd pre-start checks are safe if two services start together.
+
+### Backups
+
+Enable encrypted VPS/provider snapshots and take a PostgreSQL custom-format
+backup before every deployment. Store a copy outside this VPS:
+
+```bash
+sudo install -d -o heligent -g heligent -m 0750 /var/backups/heligent
+sudo -u heligent sh -c \
+  'pg_dump --format=custom heligent_adsb > /var/backups/heligent/heligent_adsb-$(date -u +%Y%m%dT%H%M%SZ).dump'
+```
+
+Regularly restore a backup into a separate disposable database to prove it is
+usable. PostgreSQL backups do not replace the raw archive on the Pi; back up
+the Pi's SQLite queue/manifests separately and monitor its SSD health.
+
+### Logs and health
+
+```bash
+systemctl --failed
+journalctl -u heligent-web -f
+journalctl -u heligent-intelligence-api -f
+journalctl -u heligent-ngrok -f
+sudo -u postgres psql -d heligent_adsb -c \
+  "select status, count(*) from dataset_day group by status order by status;"
+```
+
+Never paste environment files, ngrok policy contents or bearer tokens into
+support logs. Rotate the relevant secret in both peers if one is disclosed.

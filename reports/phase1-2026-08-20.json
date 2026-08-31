@@ -1,0 +1,528 @@
+{
+  "archive_structure": {
+    "aircraft_payload_format": "gzip-compressed JSON stored in .json-named tar entries",
+    "format": "uncompressed tar split across release assets",
+    "pre_trace_entries": [
+      {
+        "name": "./",
+        "size": 0,
+        "typeflag": "5"
+      },
+      {
+        "name": "./LICENSE-ODbL.txt",
+        "size": 25241,
+        "typeflag": "0"
+      },
+      {
+        "name": "./traces/",
+        "size": 0,
+        "typeflag": "5"
+      },
+      {
+        "name": "./traces/3d/",
+        "size": 0,
+        "typeflag": "5"
+      }
+    ],
+    "sample_first_entry": "./traces/3d/trace_full_a0053d.json",
+    "sample_last_entry": "./traces/4c/trace_full_c0204c.json",
+    "trace_region_bytes_approximate": 4075223552,
+    "trace_region_offset": 26624
+  },
+  "full_day_estimates": {
+    "aircraft_files": {
+      "estimate": 111540,
+      "sample_95pct_high": 123424,
+      "sample_95pct_low": 100836
+    },
+    "method": "Bootstrap extrapolation from sampled tar footprint and trace count across the approximate trace-region byte length",
+    "trace_records": {
+      "estimate": 146851559,
+      "sample_95pct_high": 150416161,
+      "sample_95pct_low": 143491337
+    },
+    "uncompressed_json_bytes": {
+      "estimate": 25710831613,
+      "sample_95pct_high": 26147311384,
+      "sample_95pct_low": 25294112650
+    }
+  },
+  "generated_at": "2026-08-22T07:25:36.183668+00:00",
+  "observed_shape": {
+    "distinct_sample_callsigns": 862,
+    "extra_field_presence_among_extra_rows": {
+      "alert": {
+        "count": 155728,
+        "percent": 94.33
+      },
+      "alt_geom": {
+        "count": 146971,
+        "percent": 89.02
+      },
+      "baro_rate": {
+        "count": 127131,
+        "percent": 77.01
+      },
+      "category": {
+        "count": 160203,
+        "percent": 97.04
+      },
+      "emergency": {
+        "count": 137692,
+        "percent": 83.4
+      },
+      "flight": {
+        "count": 156660,
+        "percent": 94.89
+      },
+      "geom_rate": {
+        "count": 81079,
+        "percent": 49.11
+      },
+      "gva": {
+        "count": 136490,
+        "percent": 82.67
+      },
+      "ias": {
+        "count": 47782,
+        "percent": 28.94
+      },
+      "mach": {
+        "count": 47740,
+        "percent": 28.92
+      },
+      "mag_heading": {
+        "count": 48602,
+        "percent": 29.44
+      },
+      "nac_p": {
+        "count": 159097,
+        "percent": 96.37
+      },
+      "nac_v": {
+        "count": 155991,
+        "percent": 94.49
+      },
+      "nav_altitude_fms": {
+        "count": 17184,
+        "percent": 10.41
+      },
+      "nav_altitude_mcp": {
+        "count": 107009,
+        "percent": 64.82
+      },
+      "nav_heading": {
+        "count": 66108,
+        "percent": 40.04
+      },
+      "nav_modes": {
+        "count": 25588,
+        "percent": 15.5
+      },
+      "nav_qnh": {
+        "count": 108438,
+        "percent": 65.68
+      },
+      "nic": {
+        "count": 165093,
+        "percent": 100.0
+      },
+      "nic_baro": {
+        "count": 139790,
+        "percent": 84.67
+      },
+      "oat": {
+        "count": 34172,
+        "percent": 20.7
+      },
+      "rc": {
+        "count": 165093,
+        "percent": 100.0
+      },
+      "roll": {
+        "count": 45449,
+        "percent": 27.53
+      },
+      "sda": {
+        "count": 146524,
+        "percent": 88.75
+      },
+      "sil": {
+        "count": 159097,
+        "percent": 96.37
+      },
+      "sil_type": {
+        "count": 161450,
+        "percent": 97.79
+      },
+      "spi": {
+        "count": 155723,
+        "percent": 94.32
+      },
+      "squawk": {
+        "count": 154131,
+        "percent": 93.36
+      },
+      "tas": {
+        "count": 45408,
+        "percent": 27.5
+      },
+      "tat": {
+        "count": 34172,
+        "percent": 20.7
+      },
+      "track": {
+        "count": 156139,
+        "percent": 94.58
+      },
+      "track_rate": {
+        "count": 40179,
+        "percent": 24.34
+      },
+      "true_heading": {
+        "count": 58180,
+        "percent": 35.24
+      },
+      "type": {
+        "count": 165093,
+        "percent": 100.0
+      },
+      "version": {
+        "count": 158086,
+        "percent": 95.76
+      },
+      "wd": {
+        "count": 41929,
+        "percent": 25.4
+      },
+      "ws": {
+        "count": 41929,
+        "percent": 25.4
+      }
+    },
+    "extra_object_rows": 165093,
+    "position_source_types": {
+      "adsb_icao": {
+        "count": 614981,
+        "percent": 93.18
+      },
+      "adsb_icao_nt": {
+        "count": 13016,
+        "percent": 1.97
+      },
+      "adsr_icao": {
+        "count": 12448,
+        "percent": 1.89
+      },
+      "mlat": {
+        "count": 13636,
+        "percent": 2.07
+      },
+      "tisb_icao": {
+        "count": 3628,
+        "percent": 0.55
+      },
+      "tisb_other": {
+        "count": 1181,
+        "percent": 0.18
+      },
+      "tisb_trackfile": {
+        "count": 1103,
+        "percent": 0.17
+      }
+    },
+    "records_per_aircraft": {
+      "max": 9817,
+      "mean": 1319.99,
+      "median": 733.5,
+      "p95": 4543.15
+    },
+    "sample_aircraft_with_registration": 414,
+    "sample_aircraft_with_type_code": 402,
+    "sample_ground_records": 64791,
+    "sample_non_icao_addresses": 56,
+    "sample_observation_window_utc": {
+      "first": "2026-08-20T00:00:00.360000+00:00",
+      "last": "2026-08-20T23:59:59.440000+00:00"
+    },
+    "sample_trace_records": 659993,
+    "top_level_field_presence": {
+      "dbFlags": {
+        "count": 416,
+        "percent": 83.2
+      },
+      "desc": {
+        "count": 371,
+        "percent": 74.2
+      },
+      "icao": {
+        "count": 500,
+        "percent": 100.0
+      },
+      "noRegData": {
+        "count": 84,
+        "percent": 16.8
+      },
+      "ownOp": {
+        "count": 246,
+        "percent": 49.2
+      },
+      "r": {
+        "count": 414,
+        "percent": 82.8
+      },
+      "t": {
+        "count": 402,
+        "percent": 80.4
+      },
+      "timestamp": {
+        "count": 500,
+        "percent": 100.0
+      },
+      "trace": {
+        "count": 500,
+        "percent": 100.0
+      },
+      "version": {
+        "count": 500,
+        "percent": 100.0
+      },
+      "year": {
+        "count": 228,
+        "percent": 45.6
+      }
+    },
+    "top_level_field_types": {
+      "dbFlags": {
+        "int": 416
+      },
+      "desc": {
+        "str": 371
+      },
+      "icao": {
+        "str": 500
+      },
+      "noRegData": {
+        "bool": 84
+      },
+      "ownOp": {
+        "str": 246
+      },
+      "r": {
+        "str": 414
+      },
+      "t": {
+        "str": 402
+      },
+      "timestamp": {
+        "float": 500
+      },
+      "trace": {
+        "list": 500
+      },
+      "version": {
+        "str": 500
+      },
+      "year": {
+        "str": 228
+      }
+    },
+    "trace_column_non_null_presence": {
+      "aircraft_detail_object": {
+        "count": 165093,
+        "percent": 25.01
+      },
+      "barometric_altitude_ft_or_ground": {
+        "count": 659968,
+        "percent": 100.0
+      },
+      "flags": {
+        "count": 659993,
+        "percent": 100.0
+      },
+      "geometric_altitude_ft": {
+        "count": 587716,
+        "percent": 89.05
+      },
+      "geometric_vertical_rate_fpm": {
+        "count": 324068,
+        "percent": 49.1
+      },
+      "ground_speed_knots": {
+        "count": 653450,
+        "percent": 99.01
+      },
+      "indicated_airspeed_knots": {
+        "count": 191125,
+        "percent": 28.96
+      },
+      "latitude": {
+        "count": 659993,
+        "percent": 100.0
+      },
+      "longitude": {
+        "count": 659993,
+        "percent": 100.0
+      },
+      "position_source_type": {
+        "count": 659993,
+        "percent": 100.0
+      },
+      "roll_degrees": {
+        "count": 181739,
+        "percent": 27.54
+      },
+      "seconds_after_timestamp": {
+        "count": 659993,
+        "percent": 100.0
+      },
+      "track_degrees": {
+        "count": 624282,
+        "percent": 94.59
+      },
+      "vertical_rate_fpm": {
+        "count": 598832,
+        "percent": 90.73
+      }
+    },
+    "trace_columns": [
+      "seconds_after_timestamp",
+      "latitude",
+      "longitude",
+      "barometric_altitude_ft_or_ground",
+      "ground_speed_knots",
+      "track_degrees",
+      "flags",
+      "vertical_rate_fpm",
+      "aircraft_detail_object",
+      "position_source_type",
+      "geometric_altitude_ft",
+      "geometric_vertical_rate_fpm",
+      "indicated_airspeed_knots",
+      "roll_degrees"
+    ],
+    "trace_format_versions": {
+      "readsb 3.16.15 05df27d": 500
+    },
+    "trace_row_lengths": {
+      "14": 659993
+    }
+  },
+  "sampling": {
+    "caveat": "Confidence ranges measure sampling variation only. Consecutive files across the leading hash shards are expected to be broadly representative but are not a formal uniform random sample of the complete archive.",
+    "compressed_payload_bytes": 17927136,
+    "http_bytes_transferred": 18564282,
+    "http_range_requests": 507,
+    "method": "Sparse tar-header range reads followed by one contiguous byte range for the first N aircraft in archive order across the leading hash shards",
+    "parse_errors": [],
+    "parsed_aircraft_files": 500,
+    "requested_aircraft_files": 500,
+    "tar_footprint_bytes": 18306048,
+    "uncompressed_json_bytes": 115523688
+  },
+  "source": {
+    "name": "ADSB.lol historical archive",
+    "preferred_release": {
+      "assets": [
+        {
+          "download_url": "https://github.com/adsblol/globe_history_2026/releases/download/v2026.08.20-planes-readsb-staging-0/v2026.08.20-planes-readsb-staging-0.tar.aa",
+          "name": "v2026.08.20-planes-readsb-staging-0.tar.aa",
+          "size": 2000000000
+        },
+        {
+          "download_url": "https://github.com/adsblol/globe_history_2026/releases/download/v2026.08.20-planes-readsb-staging-0/v2026.08.20-planes-readsb-staging-0.tar.ab",
+          "name": "v2026.08.20-planes-readsb-staging-0.tar.ab",
+          "size": 2000000000
+        },
+        {
+          "download_url": "https://github.com/adsblol/globe_history_2026/releases/download/v2026.08.20-planes-readsb-staging-0/v2026.08.20-planes-readsb-staging-0.tar.ac",
+          "name": "v2026.08.20-planes-readsb-staging-0.tar.ac",
+          "size": 75250176
+        }
+      ],
+      "html_url": "https://github.com/adsblol/globe_history_2026/releases/tag/v2026.08.20-planes-readsb-staging-0",
+      "instance": "staging-0",
+      "published_at": "2026-08-21T15:47:45Z",
+      "tag": "v2026.08.20-planes-readsb-staging-0",
+      "total_bytes": 4075250176
+    },
+    "repository": "adsblol/globe_history_2026",
+    "same_day_variants": [
+      {
+        "assets": [
+          {
+            "download_url": "https://github.com/adsblol/globe_history_2026/releases/download/v2026.08.20-planes-readsb-mlatonly-0/v2026.08.20-planes-readsb-mlatonly-0.tar",
+            "name": "v2026.08.20-planes-readsb-mlatonly-0.tar",
+            "size": 338792960
+          }
+        ],
+        "html_url": "https://github.com/adsblol/globe_history_2026/releases/tag/v2026.08.20-planes-readsb-mlatonly-0",
+        "instance": "mlatonly-0",
+        "published_at": "2026-08-21T03:22:38Z",
+        "tag": "v2026.08.20-planes-readsb-mlatonly-0",
+        "total_bytes": 338792960
+      },
+      {
+        "assets": [
+          {
+            "download_url": "https://github.com/adsblol/globe_history_2026/releases/download/v2026.08.20-planes-readsb-prod-0/v2026.08.20-planes-readsb-prod-0.tar.aa",
+            "name": "v2026.08.20-planes-readsb-prod-0.tar.aa",
+            "size": 2000000000
+          },
+          {
+            "download_url": "https://github.com/adsblol/globe_history_2026/releases/download/v2026.08.20-planes-readsb-prod-0/v2026.08.20-planes-readsb-prod-0.tar.ab",
+            "name": "v2026.08.20-planes-readsb-prod-0.tar.ab",
+            "size": 2000000000
+          },
+          {
+            "download_url": "https://github.com/adsblol/globe_history_2026/releases/download/v2026.08.20-planes-readsb-prod-0/v2026.08.20-planes-readsb-prod-0.tar.ac",
+            "name": "v2026.08.20-planes-readsb-prod-0.tar.ac",
+            "size": 72922112
+          }
+        ],
+        "html_url": "https://github.com/adsblol/globe_history_2026/releases/tag/v2026.08.20-planes-readsb-prod-0",
+        "instance": "prod-0",
+        "published_at": "2026-08-21T03:28:54Z",
+        "tag": "v2026.08.20-planes-readsb-prod-0",
+        "total_bytes": 4072922112
+      },
+      {
+        "assets": [
+          {
+            "download_url": "https://github.com/adsblol/globe_history_2026/releases/download/v2026.08.20-planes-readsb-staging-0/v2026.08.20-planes-readsb-staging-0.tar.aa",
+            "name": "v2026.08.20-planes-readsb-staging-0.tar.aa",
+            "size": 2000000000
+          },
+          {
+            "download_url": "https://github.com/adsblol/globe_history_2026/releases/download/v2026.08.20-planes-readsb-staging-0/v2026.08.20-planes-readsb-staging-0.tar.ab",
+            "name": "v2026.08.20-planes-readsb-staging-0.tar.ab",
+            "size": 2000000000
+          },
+          {
+            "download_url": "https://github.com/adsblol/globe_history_2026/releases/download/v2026.08.20-planes-readsb-staging-0/v2026.08.20-planes-readsb-staging-0.tar.ac",
+            "name": "v2026.08.20-planes-readsb-staging-0.tar.ac",
+            "size": 75250176
+          }
+        ],
+        "html_url": "https://github.com/adsblol/globe_history_2026/releases/tag/v2026.08.20-planes-readsb-staging-0",
+        "instance": "staging-0",
+        "published_at": "2026-08-21T15:47:45Z",
+        "tag": "v2026.08.20-planes-readsb-staging-0",
+        "total_bytes": 4075250176
+      }
+    ],
+    "selection_policy": "ADSB.lol PREFERRED_RELEASES.txt; variants are not merged"
+  },
+  "storage_planning": {
+    "assumptions": [
+      "400 bytes per aircraft_day row includes a planning allowance for indexes",
+      "80 bytes per normalized position row is a planning estimate, not a measured PostgreSQL size",
+      "PostgreSQL storage must be measured after Phase 2 COPY/upsert and VACUUM ANALYZE"
+    ],
+    "estimated_aircraft_day_table_bytes_at_400_bytes_per_row": 44616000,
+    "estimated_full_position_table_bytes_at_80_bytes_per_row": 11748124720,
+    "estimated_uncompressed_trace_json_bytes": 25710831613,
+    "source_archive_bytes": 4075250176
+  },
+  "utc_date": "2026-08-20"
+}

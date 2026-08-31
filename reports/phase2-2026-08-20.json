@@ -1,0 +1,132 @@
+{
+  "phase": 2,
+  "report_generated_at": "2026-08-22T11:00:17+01:00",
+  "utc_date": "2026-08-20",
+  "status": "PROCESSED",
+  "product_focus": {
+    "primary_units": [
+      "tail/day",
+      "tail/airport/day",
+      "airport/day",
+      "airport/type/day"
+    ],
+    "granular_positions_retained": false,
+    "journeys_segmented": false,
+    "tail_definition": "Unique ADS-B address for the UTC day; registration is an optional metadata snapshot.",
+    "hour_definition": "Observation-derived activity estimates using consecutive intervals of no more than 120 seconds."
+  },
+  "source": {
+    "provider": "ADSB.lol",
+    "repository": "adsblol/globe_history_2026",
+    "release_tag": "v2026.08.20-planes-readsb-staging-0",
+    "release_url": "https://github.com/adsblol/globe_history_2026/releases/tag/v2026.08.20-planes-readsb-staging-0",
+    "asset_count": 3,
+    "raw_bytes": 4075250176,
+    "assets": [
+      {
+        "name": "v2026.08.20-planes-readsb-staging-0.tar.aa",
+        "bytes": 2000000000,
+        "sha256": "0ecb3d7ca390be979237f6511c34ae7ea830d4336a02ea96cea142f7bb429d78"
+      },
+      {
+        "name": "v2026.08.20-planes-readsb-staging-0.tar.ab",
+        "bytes": 2000000000,
+        "sha256": "a828948e3eee2708439512a43f8c05637e1b0789b24fa80133419e8ca8cd5c41"
+      },
+      {
+        "name": "v2026.08.20-planes-readsb-staging-0.tar.ac",
+        "bytes": 75250176,
+        "sha256": "3c271a5c8d327775a579728b33dad9bd595e7070093b548f6064d324a5753bb1"
+      }
+    ]
+  },
+  "airport_reference": {
+    "provider": "OurAirports",
+    "url": "https://davidmegginson.github.io/ourairports-data/airports.csv",
+    "sha256": "4bc8232ba1f40e0d6b6c721e24b3a057160a1302f2b9ff7953560a5368e134ff",
+    "imported_airports": 72491,
+    "downloaded_at": "2026-08-22T08:57:47.916905+01:00"
+  },
+  "ingestion": {
+    "source_aircraft": 83336,
+    "source_observations": 111409617,
+    "aircraft_day_rows": 83336,
+    "tail_airport_links": 59092,
+    "download_duration_ms": 495395,
+    "processing_duration_ms": 2007551,
+    "sampled_peak_worker_memory_mb": 188.0,
+    "atomic_date_replacement": true,
+    "raw_deleted_after_commit": true,
+    "raw_deleted_bytes": 4075250176,
+    "remaining_raw_files": 0
+  },
+  "coverage_and_activity": {
+    "unique_adsb_addresses": 83336,
+    "addresses_with_registration": 67950,
+    "addresses_with_type_code": 66895,
+    "distinct_known_type_codes": 888,
+    "tails_with_airport_match": 36649,
+    "airports_with_traffic": 2461,
+    "primary_airport_links": 36649,
+    "active_hours_estimate": 206281.3,
+    "airborne_hours_estimate": 197665.1,
+    "ground_active_hours_estimate": 8538.8
+  },
+  "storage": {
+    "aircraft_relation_bytes": 17072128,
+    "aircraft_day_relation_bytes": 43327488,
+    "aircraft_airport_day_relation_bytes": 13991936,
+    "derived_relation_bytes": 74391552,
+    "database_bytes_including_reference_and_metadata": 115930815,
+    "raw_to_derived_ratio": 54.8,
+    "derived_percent_of_raw": 1.83,
+    "measurement_note": "PostgreSQL relations were vacuumed after deliberate reprocessing so retry bloat was excluded."
+  },
+  "top_hubs_by_unique_tail": [
+    {"airport_ident": "KORD", "iata": "ORD", "unique_tails": 1031, "primary_tails": 533, "known_type_codes": 54, "ground_active_hours": 312.8, "primary_tail_active_hours": 3210.0, "primary_tail_airborne_hours": 3040.4},
+    {"airport_ident": "KDEN", "iata": "DEN", "unique_tails": 825, "primary_tails": 424, "known_type_codes": 47, "ground_active_hours": 232.9, "primary_tail_active_hours": 3006.1, "primary_tail_airborne_hours": 2815.9},
+    {"airport_ident": "KLAX", "iata": "LAX", "unique_tails": 793, "primary_tails": 504, "known_type_codes": 63, "ground_active_hours": 218.5, "primary_tail_active_hours": 3477.3, "primary_tail_airborne_hours": 3232.5},
+    {"airport_ident": "KATL", "iata": "ATL", "unique_tails": 757, "primary_tails": 477, "known_type_codes": 50, "ground_active_hours": 275.7, "primary_tail_active_hours": 3026.0, "primary_tail_airborne_hours": 2801.7},
+    {"airport_ident": "KDFW", "iata": "DFW", "unique_tails": 690, "primary_tails": 328, "known_type_codes": 49, "ground_active_hours": 166.2, "primary_tail_active_hours": 2190.7, "primary_tail_airborne_hours": 2102.5},
+    {"airport_ident": "CYYZ", "iata": "YYZ", "unique_tails": 665, "primary_tails": 539, "known_type_codes": 74, "ground_active_hours": 328.2, "primary_tail_active_hours": 2845.1, "primary_tail_airborne_hours": 2550.1},
+    {"airport_ident": "KLAS", "iata": "LAS", "unique_tails": 657, "primary_tails": 404, "known_type_codes": 75, "ground_active_hours": 124.4, "primary_tail_active_hours": 2357.2, "primary_tail_airborne_hours": 2208.6},
+    {"airport_ident": "KSFO", "iata": "SFO", "unique_tails": 623, "primary_tails": 430, "known_type_codes": 64, "ground_active_hours": 218.3, "primary_tail_active_hours": 2817.7, "primary_tail_airborne_hours": 2569.0},
+    {"airport_ident": "EHAM", "iata": "AMS", "unique_tails": 621, "primary_tails": 523, "known_type_codes": 58, "ground_active_hours": 320.9, "primary_tail_active_hours": 3016.3, "primary_tail_airborne_hours": 2722.6},
+    {"airport_ident": "KBOS", "iata": "BOS", "unique_tails": 583, "primary_tails": 293, "known_type_codes": 60, "ground_active_hours": 143.9, "primary_tail_active_hours": 1753.9, "primary_tail_airborne_hours": 1645.9}
+  ],
+  "top_aircraft_types_by_unique_tail": [
+    {"type_code": "UNKNOWN", "unique_tails": 16441, "observations": 4646836, "active_hours": 6841.0, "airborne_hours": 5977.8, "airport_links": 3364},
+    {"type_code": "C172", "description": "Cessna 172 Skyhawk", "unique_tails": 5870, "observations": 9124386, "active_hours": 11198.1, "airborne_hours": 10943.1, "airport_links": 2524},
+    {"type_code": "B738", "description": "Boeing 737-800", "unique_tails": 4124, "observations": 9668767, "active_hours": 21210.3, "airborne_hours": 20376.1, "airport_links": 5182},
+    {"type_code": "A320", "description": "Airbus A320", "unique_tails": 3070, "observations": 6605941, "active_hours": 13865.8, "airborne_hours": 13267.3, "airport_links": 3205},
+    {"type_code": "P28A", "description": "Piper PA-28 family", "unique_tails": 3053, "observations": 4006649, "active_hours": 5307.0, "airborne_hours": 5229.0, "airport_links": 1118},
+    {"type_code": "B38M", "description": "Boeing 737 MAX 8", "unique_tails": 1854, "observations": 5136987, "active_hours": 12307.8, "airborne_hours": 11824.9, "airport_links": 3203},
+    {"type_code": "A20N", "description": "Airbus A320neo", "unique_tails": 1821, "observations": 3457542, "active_hours": 8052.0, "airborne_hours": 7760.7, "airport_links": 1706},
+    {"type_code": "A21N", "description": "Airbus A321neo", "unique_tails": 1805, "observations": 4471392, "active_hours": 10883.2, "airborne_hours": 10410.1, "airport_links": 2538},
+    {"type_code": "A321", "description": "Airbus A321", "unique_tails": 1353, "observations": 3113717, "active_hours": 7004.1, "airborne_hours": 6654.1, "airport_links": 1900},
+    {"type_code": "C182", "description": "Cessna 182 Skylane", "unique_tails": 1049, "observations": 778626, "active_hours": 1242.0, "airborne_hours": 1223.7, "airport_links": 328}
+  ],
+  "hub_match_validation": {
+    "embedded_heliport_examples": [
+      {"airport_ident": "CN33", "matched_tails_after_scoring": 0},
+      {"airport_ident": "US-0404", "matched_tails_after_scoring": 0}
+    ],
+    "corresponding_major_hub": {"airport_ident": "KLAX", "matched_tails": 793},
+    "largest_standalone_heliport": {"airport_ident": "87AZ", "matched_tails": 96}
+  },
+  "validation": {
+    "tests_passed": 13,
+    "tests_failed": 0,
+    "postgres_replacement_and_rollback_tested": true,
+    "split_archive_eof_regression_tested": true,
+    "resumable_download_and_sha256_tested": true,
+    "safe_rerun_result": "SKIPPED_ALREADY_PROCESSED",
+    "raw_file_count_after_commit": 0
+  },
+  "limitations": [
+    "Hours are ADS-B coverage estimates, not engine, block, maintenance, or regulatory time.",
+    "Airport links require source observations explicitly marked as ground.",
+    "Primary airport is a day-level observation heuristic, not a declared operating base.",
+    "Unknown type metadata remains a material cohort and should be enriched before category-level commercial analysis."
+  ]
+}

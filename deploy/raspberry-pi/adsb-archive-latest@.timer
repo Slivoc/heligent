@@ -1,0 +1,11 @@
+[Unit]
+Description=Check daily for the latest ADSB.lol raw archive for %i
+
+[Timer]
+OnCalendar=*-*-* 06:15:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+Unit=adsb-archive-latest@%i.service
+
+[Install]
+WantedBy=timers.target

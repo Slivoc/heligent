@@ -1,0 +1,62 @@
+{
+  "phase": 3,
+  "report_generated_at": "2026-08-22T11:58:29.8052204+01:00",
+  "status": "COMPLETE",
+  "application": {
+    "name": "Heligent historical coverage control",
+    "url": "http://127.0.0.1:5080",
+    "bind_scope": "loopback",
+    "worker_enabled": true,
+    "database": "heligent_adsb_phase2",
+    "processed_through": "2026-08-20"
+  },
+  "delivered_workflows": [
+    "queue one completed historical UTC date",
+    "queue only missing dates across a range of up to 31 days",
+    "monitor persisted download and processing status",
+    "inspect processed, active, failed, and missing dates in a monthly calendar",
+    "inspect source, volume, derived-row, duration, storage, cleanup, and error metrics",
+    "retry failed ingestion",
+    "explicitly reprocess a completed date",
+    "cancel work that has not started",
+    "optionally retain raw files for parser debugging"
+  ],
+  "queue_safety": {
+    "persistent_queue": true,
+    "one_active_item_per_date": true,
+    "oldest_item_claimed_first": true,
+    "database_claim_uses_skip_locked": true,
+    "single_worker_advisory_lock": true,
+    "interrupted_item_reconciliation": true,
+    "atomic_date_replacement_preserved": true
+  },
+  "existing_data_visible": {
+    "processed_days": 1,
+    "aircraft_day_rows": 83336,
+    "active_queue_items": 0,
+    "current_queue": null
+  },
+  "frontend": {
+    "responsive": true,
+    "sites_compatible_source": "web",
+    "packaged_spa": "src/adsb_ingest/web_static",
+    "javascript_bytes": 209207,
+    "css_bytes": 15604,
+    "social_preview": "web/public/og.png",
+    "social_preview_sha256": "9740c7868cede7211c5915ce27d6f0d95872f81f7951a0e9bf822579377dbb99"
+  },
+  "validation": {
+    "python_tests_passed": 19,
+    "frontend_tests_passed": 3,
+    "frontend_lint_passed": true,
+    "python_compile_passed": true,
+    "packaged_page_http_status": 200,
+    "health_status": "ok",
+    "worker_health_enabled": true,
+    "database_queue_workflow_tested": true
+  },
+  "hosting": {
+    "mode": "local_only",
+    "reason": "The write-capable control plane must reach and launch the workstation-bound PostgreSQL ingestion worker. Hosting only the frontend would be nonfunctional; internet exposure requires a future authenticated backend design."
+  }
+}

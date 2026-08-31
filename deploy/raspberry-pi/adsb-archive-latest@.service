@@ -1,0 +1,14 @@
+[Unit]
+Description=Queue the latest ADSB.lol raw archive for %i
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=%i
+WorkingDirectory=/opt/heligent
+EnvironmentFile=/etc/heligent/adsb-archive
+ExecStart=/opt/heligent/.venv/bin/adsb-archive queue-latest
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true

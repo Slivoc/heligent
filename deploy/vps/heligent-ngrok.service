@@ -1,0 +1,23 @@
+[Unit]
+Description=ngrok OAuth gateway for Heligent maintenance application
+Wants=network-online.target
+Requires=heligent-web.service
+After=network-online.target heligent-web.service
+
+[Service]
+Type=simple
+User=heligent-ngrok
+Group=heligent-ngrok
+EnvironmentFile=/etc/heligent/ngrok.env
+UMask=0027
+ExecStart=/usr/bin/ngrok http 5080 --url ${NGROK_URL} --traffic-policy-file /etc/heligent/ngrok-traffic-policy.yml --config /etc/heligent/ngrok.yml
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

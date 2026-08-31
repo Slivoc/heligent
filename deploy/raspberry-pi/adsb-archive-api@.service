@@ -1,0 +1,20 @@
+[Unit]
+Description=Heligent read-only ADS-B archive API for %i
+Wants=network-online.target
+After=network-online.target adsb-archive-worker@%i.service
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/heligent
+EnvironmentFile=/etc/heligent/adsb-archive
+ExecStart=/opt/heligent/.venv/bin/adsb-archive-api --host 127.0.0.1 --port 5090
+Restart=on-failure
+RestartSec=30
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

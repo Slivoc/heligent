@@ -1,0 +1,30 @@
+on_http_request:
+  # Never trust identity-looking headers supplied by a browser.
+  - actions:
+      - type: remove-headers
+        config:
+          headers:
+            - x-heligent-auth-email
+            - x-heligent-auth-name
+            - x-heligent-proxy-secret
+
+  # Use a custom Microsoft Entra application for production. Its Web redirect
+  # URI must be https://idp.ngrok.com/oauth2/callback.
+  - actions:
+      - type: oauth
+        config:
+          provider: microsoft
+          client_id: replace-with-entra-application-client-id
+          client_secret: replace-with-entra-client-secret-value
+          scopes:
+            - openid
+            - email
+            - profile
+
+  # Heligent applies its own active-user allow-list and role after OAuth.
+  - actions:
+      - type: add-headers
+        config:
+          headers:
+            x-heligent-auth-email: "${actions.ngrok.oauth.identity.email}"
+            x-heligent-proxy-secret: "replace-with-the-same-64-character-hex-secret-as-heligent.env"

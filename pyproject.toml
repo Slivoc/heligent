@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heligent-adsb-ingest"
+version = "0.9.0"
+description = "Bounded inspection and ingestion tooling for ADSB.lol historical archives"
+requires-python = ">=3.11"
+dependencies = [
+    "Flask>=3.1.3,<4",
+    "msgspec>=0.19,<1",
+    "psycopg[binary]>=3.2,<4",
+    "pycountry>=24.6,<25",
+    "requests>=2.31,<3",
+    "sqlglot>=25,<31",
+    "waitress>=3.0.2,<4",
+]
+
+[project.scripts]
+adsb-phase1 = "adsb_ingest.phase1:main"
+adsb-ingest = "adsb_ingest.ingest:main"
+adsb-archive = "adsb_ingest.raw_archive:main"
+adsb-archive-api = "adsb_ingest.archive_api:main"
+heligent-intelligence-api = "adsb_ingest.intelligence_api:main"
+heligent-users = "adsb_ingest.access:main"
+heligent-migrate = "adsb_ingest.migrate:main"
+adsb-web = "adsb_ingest.webapp:main"
+heligent-companies = "adsb_ingest.companies:main"
+heligent-aircraft-registry = "adsb_ingest.aircraft_registry:main"
+
+[tool.setuptools.package-data]
+adsb_ingest = ["web_static/**/*"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
