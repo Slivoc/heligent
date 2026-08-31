@@ -32,14 +32,49 @@ for the intelligence API.
 
 ## 1. Put the release on the VPS
 
-Create `/srv/heligent` from the tested release, either by cloning the private
-repository there or copying a release archive over SSH. The directory must
-contain `pyproject.toml`, `schema/`, `src/` and `deploy/`.
+Create a dedicated read-only GitHub deploy key **on the VPS**, while signed in
+as the Linux account that will perform deployments. Do not create the private
+key on a workstation or copy it into GitHub.
+
+```bash
+install -d -m 0700 ~/.ssh
+ssh-keygen -t ed25519 -C "heligent-vps-deploy" \
+  -f ~/.ssh/heligent_github -N ""
+cat ~/.ssh/heligent_github.pub
+```
+
+In GitHub, open `Slivoc/heligent` -> **Settings** -> **Deploy keys** ->
+**Add deploy key**. Name it `Heligent production VPS`, paste the displayed
+public key, and leave **Allow write access** unchecked. Each VPS should have
+its own deploy key.
+
+Give this repository a distinct SSH host alias so the key cannot accidentally
+be offered to unrelated GitHub repositories:
+
+```bash
+cat >> ~/.ssh/config <<'EOF'
+Host github-heligent
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/heligent_github
+  IdentitiesOnly yes
+EOF
+chmod 0600 ~/.ssh/config
+ssh -T git@github-heligent
+```
+
+On the first connection, compare the reported host-key fingerprint with
+GitHub's published SSH fingerprints before accepting it. A successful deploy
+key test may still say that GitHub does not provide shell access; that is
+normal.
+
+Then clone the tested release. The directory must contain `pyproject.toml`,
+`schema/`, `src/` and `deploy/`.
 
 ```bash
 sudo mkdir -p /srv/heligent
 sudo chown "$USER":"$USER" /srv/heligent
-git clone YOUR_PRIVATE_REPOSITORY_URL /srv/heligent
+git clone git@github-heligent:Slivoc/heligent.git /srv/heligent
 cd /srv/heligent
 ```
 
