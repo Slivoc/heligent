@@ -320,16 +320,40 @@ class IntelligenceService:
                     activity.time_observed_hours,
                     activity.estimated_distance_nm,
                     activity.distinct_airports AS airport_links,
+                    COALESCE(flight_totals.flight_segment_count, 0)
+                        AS flight_segment_count,
+                    COALESCE(flight_totals.observed_flight_hours, 0)
+                        AS observed_flight_hours,
+                    COALESCE(flight_totals.elapsed_flight_hours, 0)
+                        AS elapsed_flight_hours,
+                    COALESCE(flight_totals.unobserved_flight_hours, 0)
+                        AS unobserved_flight_hours,
                     COALESCE(airport_totals.arrival_candidates, 0) AS arrival_candidates,
                     COALESCE(airport_totals.departure_candidates, 0) AS departure_candidates,
                     COALESCE(airport_totals.movement_candidates, 0) AS movement_candidates,
+                    COALESCE(airport_totals.airport_visit_count, 0)
+                        AS airport_visit_count,
                     COALESCE(airport_totals.airports, '[]'::jsonb) AS airports
                 FROM nl_aircraft_activity activity
+                LEFT JOIN LATERAL (
+                    SELECT
+                        count(*) AS flight_segment_count,
+                        sum(segment.observed_airborne_seconds) / 3600.0
+                            AS observed_flight_hours,
+                        sum(segment.elapsed_airborne_seconds) / 3600.0
+                            AS elapsed_flight_hours,
+                        sum(segment.unobserved_seconds) / 3600.0
+                            AS unobserved_flight_hours
+                    FROM aircraft_flight_segment segment
+                    WHERE segment.dataset_day_id = activity.dataset_day_id
+                      AND segment.address = activity.address
+                ) flight_totals ON true
                 LEFT JOIN LATERAL (
                     SELECT
                         sum(a.arrival_candidates) AS arrival_candidates,
                         sum(a.departure_candidates) AS departure_candidates,
                         sum(a.movement_candidates) AS movement_candidates,
+                        sum(a.presence_count) AS airport_visit_count,
                         jsonb_agg(
                             jsonb_build_object(
                                 'ident', a.airport_ident,
@@ -338,6 +362,7 @@ class IntelligenceService:
                                 'country', a.airport_country,
                                 'is_primary', a.is_primary_airport,
                                 'evidence', a.link_method,
+                                'visit_count', a.presence_count,
                                 'arrival_candidates', a.arrival_candidates,
                                 'departure_candidates', a.departure_candidates,
                                 'movement_candidates', a.movement_candidates
@@ -423,6 +448,15 @@ class IntelligenceService:
                     activity.time_observed_hours,
                     activity.estimated_distance_nm,
                     activity.distinct_airports AS airport_links,
+                    dataset.derivation_version,
+                    COALESCE(flight_totals.flight_segment_count, 0)
+                        AS flight_segment_count,
+                    COALESCE(flight_totals.observed_flight_hours, 0)
+                        AS observed_flight_hours,
+                    COALESCE(flight_totals.elapsed_flight_hours, 0)
+                        AS elapsed_flight_hours,
+                    COALESCE(flight_totals.unobserved_flight_hours, 0)
+                        AS unobserved_flight_hours,
                     GREATEST(
                         dataset.updated_at,
                         activity_cache.refreshed_at,
@@ -431,6 +465,8 @@ class IntelligenceService:
                     COALESCE(airport_totals.arrival_candidates, 0) AS arrival_candidates,
                     COALESCE(airport_totals.departure_candidates, 0) AS departure_candidates,
                     COALESCE(airport_totals.movement_candidates, 0) AS movement_candidates,
+                    COALESCE(airport_totals.airport_visit_count, 0)
+                        AS airport_visit_count,
                     COALESCE(airport_totals.airports, '[]'::jsonb) AS airports
                 FROM nl_aircraft_activity activity
                 JOIN dataset_day dataset ON dataset.id = activity.dataset_day_id
@@ -441,9 +477,23 @@ class IntelligenceService:
                   ON operator_cache.address = activity.address
                 LEFT JOIN LATERAL (
                     SELECT
+                        count(*) AS flight_segment_count,
+                        sum(segment.observed_airborne_seconds) / 3600.0
+                            AS observed_flight_hours,
+                        sum(segment.elapsed_airborne_seconds) / 3600.0
+                            AS elapsed_flight_hours,
+                        sum(segment.unobserved_seconds) / 3600.0
+                            AS unobserved_flight_hours
+                    FROM aircraft_flight_segment segment
+                    WHERE segment.dataset_day_id = activity.dataset_day_id
+                      AND segment.address = activity.address
+                ) flight_totals ON true
+                LEFT JOIN LATERAL (
+                    SELECT
                         sum(a.arrival_candidates) AS arrival_candidates,
                         sum(a.departure_candidates) AS departure_candidates,
                         sum(a.movement_candidates) AS movement_candidates,
+                        sum(a.presence_count) AS airport_visit_count,
                         jsonb_agg(
                             jsonb_build_object(
                                 'ident', a.airport_ident,
@@ -453,6 +503,7 @@ class IntelligenceService:
                                 'region', a.activity_region,
                                 'is_primary', a.is_primary_airport,
                                 'evidence', a.link_method,
+                                'visit_count', a.presence_count,
                                 'arrival_candidates', a.arrival_candidates,
                                 'departure_candidates', a.departure_candidates,
                                 'movement_candidates', a.movement_candidates

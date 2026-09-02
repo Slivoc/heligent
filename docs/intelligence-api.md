@@ -65,13 +65,21 @@ Each returned activity day includes:
 - identity source/status;
 - observations and estimated active, airborne, ground-active and observed
   hours;
-- estimated distance, airport-link count and candidate movements;
+- the parser version plus flight-segment count and separate observed, elapsed,
+  and unobserved segment hours on rebuilt dates;
+- estimated distance, airport-link/repeat-visit counts and candidate movements;
 - airport identities and evidence; and
 - `data_revision`, which changes when the dataset, identity or resolved
   operator cache is refreshed.
 
 Use `(source, utc_date, address)` as the consumer-side fact key. Always inspect
 `meta.coverage` and `meta.registrations_without_activity`.
+
+`airborne_hours` remains the conservative 120-second-continuity metric for API
+compatibility. `elapsed_flight_hours` is the inferred takeoff-to-landing total;
+compare it with `observed_flight_hours` and `unobserved_flight_hours` before
+selecting a utilisation measure. Legacy dates return a null
+`derivation_version` and zero episode fields until reprocessed.
 
 ### Regional aircraft rankings
 

@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 from typing import Iterator
@@ -19,7 +20,7 @@ from .airports import (
 from .archive import iter_trace_payloads
 from .downloader import AssetDownloader
 from .postgres import PostgresStore
-from .summarize import ActivityConfig, AircraftDaySummary, AirportPresenceSummary, summarize_trace
+from .summarize import ActivityConfig, DERIVATION_VERSION, TraceSummary, summarize_trace
 
 
 LOGGER = logging.getLogger("adsb_ingest")
@@ -149,6 +150,11 @@ def run_ingestion(args: argparse.Namespace) -> dict[str, object]:
         max_continuous_gap_seconds=args.max_continuous_gap_seconds,
         airport_ground_gap_seconds=args.airport_ground_gap_seconds,
         active_speed_knots=args.active_speed_knots,
+        airport_contact_max_agl_ft=args.airport_contact_max_agl_ft,
+        airport_contact_max_speed_knots=args.airport_contact_max_speed_knots,
+        flight_discontinuity_gap_seconds=args.flight_discontinuity_gap_seconds,
+        flight_endpoint_link_seconds=args.flight_endpoint_link_seconds,
+        flight_boundary_interpolation_seconds=args.flight_boundary_interpolation_seconds,
         calculate_distance=args.calculate_distance,
     )
     invalid_trace_names: list[str] = []
@@ -163,9 +169,7 @@ def run_ingestion(args: argparse.Namespace) -> dict[str, object]:
                 "to ingest a potentially damaged day"
             ) from error
 
-    def summaries() -> Iterator[
-        tuple[AircraftDaySummary, tuple[AirportPresenceSummary, ...]]
-    ]:
+    def summaries() -> Iterator[TraceSummary]:
         for trace in iter_trace_payloads(
             download.paths,
             on_invalid=quarantine_invalid_trace,
@@ -184,6 +188,8 @@ def run_ingestion(args: argparse.Namespace) -> dict[str, object]:
             summaries(),
             batch_size=args.batch_size,
             heartbeat_every=args.heartbeat_every,
+            derivation_version=DERIVATION_VERSION,
+            derivation_config=asdict(config),
         )
     except Exception as exc:
         store.fail_job(
@@ -193,6 +199,18 @@ def run_ingestion(args: argparse.Namespace) -> dict[str, object]:
             message=f"{type(exc).__name__}: {exc}",
         )
         raise
+
+    analytics_refresh_error: str | None = None
+    try:
+        from .analytics import AnalyticsStore
+
+        AnalyticsStore(store).refresh_after_ingestion()
+    except Exception as exc:
+        analytics_refresh_error = f"{type(exc).__name__}: {exc}"
+        LOGGER.exception(
+            "Derived rows committed but semantic cache refresh failed; "
+            "heligent-migrate or the next successful ingestion can retry it"
+        )
 
     raw_deleted_bytes = 0
     if not args.keep_raw:
@@ -215,6 +233,7 @@ def run_ingestion(args: argparse.Namespace) -> dict[str, object]:
         "reused_bytes": download.bytes_reused,
         "raw_deleted_bytes": raw_deleted_bytes,
         "invalid_aircraft_trace_count": len(invalid_trace_names),
+        "analytics_refresh_error": analytics_refresh_error,
         **metrics,
     }
 
@@ -261,6 +280,11 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--max-continuous-gap-seconds", type=float, default=120.0)
     ingest.add_argument("--airport-ground-gap-seconds", type=float, default=300.0)
     ingest.add_argument("--active-speed-knots", type=float, default=5.0)
+    ingest.add_argument("--airport-contact-max-agl-ft", type=float, default=500.0)
+    ingest.add_argument("--airport-contact-max-speed-knots", type=float, default=100.0)
+    ingest.add_argument("--flight-discontinuity-gap-seconds", type=float, default=1_800.0)
+    ingest.add_argument("--flight-endpoint-link-seconds", type=float, default=1_800.0)
+    ingest.add_argument("--flight-boundary-interpolation-seconds", type=float, default=900.0)
     ingest.add_argument(
         "--calculate-distance",
         action="store_true",
@@ -283,7 +307,20 @@ def main() -> None:
         store = PostgresStore(_database_url(args.database_url))
         if args.command == "init-db":
             store.apply_schema(args.schema)
-            print(json.dumps({"status": "SCHEMA_CREATED", "schema": str(args.schema)}))
+            applied_migrations: list[str] = []
+            if args.schema.resolve() == DEFAULT_SCHEMA.resolve():
+                from .migrate import migrate
+
+                applied_migrations = migrate(store.dsn)
+            print(
+                json.dumps(
+                    {
+                        "status": "SCHEMA_CREATED",
+                        "schema": str(args.schema),
+                        "applied_migrations": applied_migrations,
+                    }
+                )
+            )
         elif args.command == "status":
             print(json.dumps(store.get_dataset(args.utc_date), indent=2, default=str))
         elif args.command == "ingest-day":

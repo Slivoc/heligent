@@ -303,6 +303,97 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(presences[0].departure_count, 1)
         self.assertEqual(presences[0].link_method, "GROUND")
 
+    def test_retains_repeated_visits_and_flight_episodes(self) -> None:
+        first_airport = Airport(
+            ident="FIRST",
+            airport_type="small_airport",
+            name="First Airport",
+            latitude_deg=51.0,
+            longitude_deg=-1.0,
+            elevation_ft=100,
+            continent="EU",
+            iso_country="GB",
+            iso_region="GB-ENG",
+            municipality="First",
+            scheduled_service=False,
+            gps_code=None,
+            iata_code=None,
+            local_code=None,
+        )
+        second_airport = Airport(
+            ident="SECOND",
+            airport_type="small_airport",
+            name="Second Airport",
+            latitude_deg=52.0,
+            longitude_deg=-1.0,
+            elevation_ft=100,
+            continent="EU",
+            iso_country="GB",
+            iso_region="GB-ENG",
+            municipality="Second",
+            scheduled_service=False,
+            gps_code=None,
+            iata_code=None,
+            local_code=None,
+        )
+        payload = {
+            "icao": "abcdef",
+            "r": "G-TEST",
+            "t": "H145",
+            "timestamp": 1787184000.0,
+            "trace": [
+                trace_row(0, 51.0, -1.0, "ground", 0, flight="LEG1"),
+                trace_row(30, 51.0, -1.0, "ground", 10, flight="LEG1"),
+                trace_row(60, 51.1, -1.0, 1_000, 120, flight="LEG1"),
+                trace_row(120, 51.5, -1.0, 2_000, 130, flight="LEG1"),
+                trace_row(180, 51.99, -1.0, 600, 90, flight="LEG1"),
+                trace_row(210, 52.0, -1.0, "ground", 0),
+                trace_row(240, 51.9, -1.0, 1_000, 120, flight="LEG2"),
+                trace_row(300, 51.5, -1.0, 2_000, 130, flight="LEG2"),
+                trace_row(360, 51.01, -1.0, 600, 90, flight="LEG2"),
+                trace_row(390, 51.0, -1.0, "ground", 0),
+            ],
+        }
+        trace = TracePayload("trace.json", "abcdef", 100, 500, payload)
+
+        result = summarize_trace(
+            trace,
+            date(2026, 8, 20),
+            AirportIndex([first_airport, second_airport]),
+        )
+
+        self.assertEqual(
+            [visit.airport_ident for visit in result.airport_visits],
+            ["FIRST", "SECOND", "FIRST"],
+        )
+        first_presence = next(
+            item for item in result.airport_presences if item.airport_ident == "FIRST"
+        )
+        self.assertEqual(first_presence.presence_count, 2)
+        self.assertEqual(first_presence.arrival_count, 1)
+        self.assertEqual(first_presence.departure_count, 1)
+        self.assertEqual(len(result.flight_segments), 2)
+        self.assertEqual(
+            (
+                result.flight_segments[0].origin_airport_ident,
+                result.flight_segments[0].destination_airport_ident,
+            ),
+            ("FIRST", "SECOND"),
+        )
+        self.assertEqual(
+            (
+                result.flight_segments[1].origin_airport_ident,
+                result.flight_segments[1].destination_airport_ident,
+            ),
+            ("SECOND", "FIRST"),
+        )
+        self.assertEqual(result.flight_segments[0].observed_airborne_seconds, 60)
+        self.assertGreater(
+            result.flight_segments[0].elapsed_airborne_seconds,
+            result.flight_segments[0].observed_airborne_seconds,
+        )
+        self.assertIn(result.flight_segments[0].confidence, {"MEDIUM", "HIGH"})
+
 
 class SplitArchiveTests(unittest.TestCase):
     def test_repeated_reads_after_final_part_return_eof(self) -> None:

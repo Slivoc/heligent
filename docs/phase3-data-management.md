@@ -7,6 +7,8 @@ administrator can:
 
 - select one completed historical UTC date and queue it;
 - queue only missing dates across a range of up to 31 days;
+- explicitly rebuild processed dates across a range of up to 31 days after a
+  parser upgrade;
 - choose the public ADSB.lol download or the private Raspberry Pi archive API
   for each queue operation;
 - see processed, active, failed, and not-local dates in a monthly calendar;
@@ -43,8 +45,11 @@ item; the existing ingestion reconciliation then marks stale stage jobs before
 retrying safely.
 
 Date replacement remains atomic. During reprocessing, the previously committed
-tail/day and hub/day rows remain available until the replacement transaction
-commits. A failed replacement does not duplicate or partially replace them.
+tail/day, hub/day, flight-segment, and airport-visit rows remain available until
+the replacement transaction commits. A failed replacement does not duplicate
+or partially replace them. Reprocessing also invalidates and rebuilds the
+affected semantic activity caches so API consumers do not see stale hours or
+movement counts.
 
 ## Raw download sources
 
@@ -88,6 +93,9 @@ local admin process.
 - `POST /api/datasets/YYYY-MM-DD/retry`
 - `POST /api/datasets/YYYY-MM-DD/reprocess`
 - `POST /api/queue/{id}/cancel`
+
+`POST /api/queue/range` accepts `reprocess: true` to include already processed
+dates; without it, the endpoint continues to queue missing dates only.
 
 ## Validation
 

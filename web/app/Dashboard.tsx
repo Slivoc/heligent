@@ -26,6 +26,9 @@ type DayRecord = {
   source_record_count?: number | null;
   derived_record_count?: number | null;
   airport_presence_record_count?: number | null;
+  flight_segment_record_count?: number | null;
+  airport_visit_record_count?: number | null;
+  derivation_version?: string | null;
   download_duration_ms?: number | null;
   processing_duration_ms?: number | null;
   derived_bytes_estimate?: number | null;
@@ -226,6 +229,7 @@ export function Dashboard() {
   const [rangeFrom, setRangeFrom] = useState(`${yesterday.slice(0, 8)}01`);
   const [rangeTo, setRangeTo] = useState(yesterday);
   const [keepRaw, setKeepRaw] = useState(false);
+  const [reprocessRange, setReprocessRange] = useState(false);
   const [rawSource, setRawSource] = useState<"DIRECT" | "PI">("DIRECT");
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
@@ -303,9 +307,11 @@ export function Dashboard() {
     void mutate(
       () => api("/api/queue/range", {
         method: "POST",
-        body: JSON.stringify({ from_date: rangeFrom, to_date: rangeTo, keep_raw: keepRaw, raw_source: rawSource }),
+        body: JSON.stringify({ from_date: rangeFrom, to_date: rangeTo, reprocess: reprocessRange, keep_raw: keepRaw, raw_source: rawSource }),
       }),
-      "Missing dates in the selected range were queued.",
+      reprocessRange
+        ? "Processed and missing dates in the selected range were queued for rebuilding."
+        : "Missing dates in the selected range were queued.",
     );
   };
 
@@ -414,13 +420,17 @@ export function Dashboard() {
           <form className="range-form" onSubmit={queueRange}>
             <label>From<input type="date" value={rangeFrom} max={yesterday} onChange={(event) => setRangeFrom(event.target.value)} required /></label>
             <label>To<input type="date" value={rangeTo} max={yesterday} onChange={(event) => setRangeTo(event.target.value)} required /></label>
-            <button className="button button-secondary" type="submit" disabled={acting}>Queue missing days</button>
+            <button className="button button-secondary" type="submit" disabled={acting}>{reprocessRange ? "Reprocess range" : "Queue missing days"}</button>
           </form>
+          <label className="check-row">
+            <input type="checkbox" checked={reprocessRange} onChange={(event) => setReprocessRange(event.target.checked)} />
+            <span><strong>Reprocess completed dates in this range</strong><small>Re-downloads each day and atomically rebuilds its derived flights and visits.</small></span>
+          </label>
           <label className="check-row">
             <input type="checkbox" checked={keepRaw} onChange={(event) => setKeepRaw(event.target.checked)} />
             <span><strong>Keep raw files after processing</strong><small>Developer option. Off is safer for disk use.</small></span>
           </label>
-          <p className="guardrail-copy">Already processed dates are skipped. Ranges are capped at 31 days and run sequentially.</p>
+          <p className="guardrail-copy">Already processed dates are skipped unless range reprocessing is selected. Ranges are capped at 31 days and run sequentially.</p>
         </article>
 
         <article className="panel last-run-panel">
@@ -430,6 +440,8 @@ export function Dashboard() {
               <div><span>Aircraft</span><strong>{numberFormatter.format(latest.source_aircraft_count ?? 0)}</strong></div>
               <div><span>Observations</span><strong>{numberFormatter.format(latest.source_record_count ?? 0)}</strong></div>
               <div><span>Hub activity links</span><strong>{numberFormatter.format(latest.airport_presence_record_count ?? 0)}</strong></div>
+              <div><span>Flight episodes</span><strong>{numberFormatter.format(latest.flight_segment_record_count ?? 0)}</strong></div>
+              <div><span>Airport visits</span><strong>{numberFormatter.format(latest.airport_visit_record_count ?? 0)}</strong></div>
               <div><span>Download</span><strong>{formatDuration(latest.download_duration_ms)}</strong></div>
               <div><span>Processing</span><strong>{formatDuration(latest.processing_duration_ms)}</strong></div>
               <div><span>Raw cleanup</span><strong>{latest.raw_deleted_at ? "Complete" : "Retained"}</strong></div>
@@ -467,7 +479,7 @@ export function Dashboard() {
           {selected ? (
             <>
               <dl className="detail-list">
-                <div><dt>Release</dt><dd>{String(selected.source_release_tag ?? "Pending discovery")}</dd></div><div><dt>Raw source</dt><dd>{formatBytes(selected.raw_bytes as number | null)}</dd></div><div><dt>Aircraft</dt><dd>{numberFormatter.format(Number(selected.source_aircraft_count ?? 0))}</dd></div><div><dt>Observations</dt><dd>{numberFormatter.format(Number(selected.source_record_count ?? 0))}</dd></div><div><dt>Derived storage</dt><dd>{formatBytes(selected.derived_bytes_estimate as number | null)}</dd></div><div><dt>Raw deleted</dt><dd>{selected.raw_deleted_at ? formatTimestamp(selected.raw_deleted_at as string) : "No"}</dd></div>
+                <div><dt>Release</dt><dd>{String(selected.source_release_tag ?? "Pending discovery")}</dd></div><div><dt>Parser</dt><dd>{String(selected.derivation_version ?? "Legacy daily summaries")}</dd></div><div><dt>Raw source</dt><dd>{formatBytes(selected.raw_bytes as number | null)}</dd></div><div><dt>Aircraft</dt><dd>{numberFormatter.format(Number(selected.source_aircraft_count ?? 0))}</dd></div><div><dt>Observations</dt><dd>{numberFormatter.format(Number(selected.source_record_count ?? 0))}</dd></div><div><dt>Flight episodes</dt><dd>{numberFormatter.format(Number(selected.flight_segment_record_count ?? 0))}</dd></div><div><dt>Airport visits</dt><dd>{numberFormatter.format(Number(selected.airport_visit_record_count ?? 0))}</dd></div><div><dt>Derived storage</dt><dd>{formatBytes(selected.derived_bytes_estimate as number | null)}</dd></div><div><dt>Raw deleted</dt><dd>{selected.raw_deleted_at ? formatTimestamp(selected.raw_deleted_at as string) : "No"}</dd></div>
               </dl>
               {selected.error_message && <div className="date-error"><strong>{String(selected.error_stage ?? "Ingestion")} error</strong>{String(selected.error_message)}</div>}
               <div className="detail-actions">

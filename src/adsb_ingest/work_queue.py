@@ -150,6 +150,7 @@ class AdminStore(PostgresStore):
         start_date: date,
         end_date: date,
         *,
+        reprocess: bool = False,
         keep_raw: bool = False,
         raw_source: str = "DIRECT",
     ) -> dict[str, Any]:
@@ -165,12 +166,14 @@ class AdminStore(PostgresStore):
             results.append(
                 self.enqueue_date(
                     date.fromordinal(start_date.toordinal() + offset),
+                    reprocess=reprocess,
                     keep_raw=keep_raw,
                     raw_source=raw_source,
                 )
             )
         return {
             "requested_days": span,
+            "requested_action": "REPROCESS" if reprocess else "INGEST",
             "queued_days": sum(item["outcome"] == "QUEUED" for item in results),
             "skipped_days": sum(item["outcome"] != "QUEUED" for item in results),
             "results": results,
@@ -359,6 +362,7 @@ class AdminStore(PostgresStore):
                     d.utc_date, d.status, d.source_release_tag, d.raw_bytes,
                     d.source_aircraft_count, d.source_record_count,
                     d.derived_record_count, d.airport_presence_record_count,
+                    d.flight_segment_record_count, d.airport_visit_record_count,
                     d.download_duration_ms, d.processing_duration_ms,
                     d.derived_bytes_estimate, d.raw_deleted_at,
                     d.raw_deleted_bytes, d.error_stage, d.error_message,
@@ -447,6 +451,7 @@ class AdminStore(PostgresStore):
                 SELECT utc_date, status, raw_bytes, source_aircraft_count,
                        source_record_count, derived_record_count,
                        airport_presence_record_count, download_duration_ms,
+                       flight_segment_record_count, airport_visit_record_count,
                        processing_duration_ms, derived_bytes_estimate,
                        raw_deleted_at, raw_deleted_bytes
                 FROM dataset_day
@@ -573,6 +578,11 @@ class SequentialIngestionWorker:
             max_continuous_gap_seconds=120.0,
             airport_ground_gap_seconds=300.0,
             active_speed_knots=5.0,
+            airport_contact_max_agl_ft=500.0,
+            airport_contact_max_speed_knots=100.0,
+            flight_discontinuity_gap_seconds=1_800.0,
+            flight_endpoint_link_seconds=1_800.0,
+            flight_boundary_interpolation_seconds=900.0,
             calculate_distance=False,
         )
 

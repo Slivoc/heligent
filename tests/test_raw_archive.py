@@ -75,6 +75,25 @@ class ArchiveQueueTests(unittest.TestCase):
         self.assertEqual(retried.utc_date, latest)
         self.assertIsNone(self.queue.claim_next())
 
+    def test_verification_rotates_from_unverified_to_least_recently_verified(self) -> None:
+        first = date(2026, 8, 20)
+        second = date(2026, 8, 21)
+        for utc_date in (first, second):
+            self.queue.enqueue(utc_date)
+            self.assertIsNotNone(self.queue.claim_next())
+            self.queue.complete(utc_date, self.root / f"{utc_date}.json", 10)
+
+        row = self.queue.next_verification_row()
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row["utc_date"], first.isoformat())
+
+        self.queue.mark_verified(first)
+        row = self.queue.next_verification_row()
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row["utc_date"], second.isoformat())
+
 
 class ArchiveWorkerTests(unittest.TestCase):
     def test_download_writes_verifiable_manifest_and_completes_queue(self) -> None:

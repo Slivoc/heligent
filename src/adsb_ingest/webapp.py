@@ -233,14 +233,10 @@ def create_app(
         analytics.apply_phase10_migration()
         analytics.apply_phase11_migration()
         analytics.apply_phase12_migration()
+        analytics.apply_phase15_migration()
     query_service = natural_language or SemanticNaturalLanguageAnalytics(analytics)
     worker = SequentialIngestionWorker(
         admin_store,
-        after_success=getattr(
-            analytics,
-            "refresh_after_ingestion",
-            analytics.refresh_type_classification,
-        ),
     )
     app.extensions["admin_store"] = admin_store
     app.extensions["analytics_store"] = analytics
@@ -657,6 +653,7 @@ def create_app(
         result = admin_store.enqueue_range(
             start_date,
             end_date,
+            reprocess=bool(payload.get("reprocess", False)),
             keep_raw=bool(payload.get("keep_raw", False)),
             raw_source=raw_source,
         )

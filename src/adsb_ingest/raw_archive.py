@@ -344,6 +344,22 @@ class ArchiveQueue:
         with closing(self.connect()) as connection, connection:
             return [dict(row) for row in connection.execute(query, parameters).fetchall()]
 
+    def next_verification_row(self) -> dict[str, Any] | None:
+        """Return one completed day, rotating from never/least-recently verified."""
+        with closing(self.connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT * FROM archive_queue
+                WHERE status = 'COMPLETE'
+                ORDER BY
+                    CASE WHEN verified_at IS NULL THEN 0 ELSE 1 END,
+                    verified_at ASC,
+                    utc_date ASC
+                LIMIT 1
+                """
+            ).fetchone()
+        return dict(row) if row is not None else None
+
     def mark_verified(self, utc_date: date) -> None:
         now = _now()
         with closing(self.connect()) as connection, connection:
@@ -735,6 +751,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify = subparsers.add_parser("verify", help="Re-hash completed archive assets")
     verify.add_argument("date", nargs="?", type=_historical_date)
+    subparsers.add_parser(
+        "verify-next",
+        help="Re-hash the never or least-recently verified completed day",
+    )
     return parser
 
 
@@ -825,6 +845,24 @@ def main() -> None:
                     failed += 1
             if failed:
                 raise SystemExit(1)
+        elif args.command == "verify-next":
+            row = queue.next_verification_row()
+            if row is None:
+                print(json.dumps({"status": "EMPTY", "message": "No completed archives"}))
+            else:
+                ok, problems = _verify_manifest(row)
+                print(
+                    json.dumps(
+                        {
+                            "utc_date": row["utc_date"],
+                            "status": "VERIFIED" if ok else "FAILED",
+                            "problems": problems,
+                        }
+                    )
+                )
+                if not ok:
+                    raise SystemExit(1)
+                queue.mark_verified(date.fromisoformat(row["utc_date"]))
         else:
             parser.error(f"Unknown command {args.command}")
     except KeyboardInterrupt:

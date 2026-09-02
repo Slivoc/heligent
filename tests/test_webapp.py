@@ -14,6 +14,7 @@ class FakeAdminStore:
 
     def __init__(self) -> None:
         self.queued: list[tuple[date, bool, bool, str]] = []
+        self.queued_ranges: list[tuple[date, date, bool, bool, str]] = []
 
     def apply_phase3_migration(self) -> None:
         return None
@@ -64,9 +65,13 @@ class FakeAdminStore:
         start_date: date,
         end_date: date,
         *,
+        reprocess: bool = False,
         keep_raw: bool = False,
         raw_source: str = "DIRECT",
     ):
+        self.queued_ranges.append(
+            (start_date, end_date, reprocess, keep_raw, raw_source)
+        )
         return {"requested_days": (end_date - start_date).days + 1, "queued_days": 2, "skipped_days": 0, "results": []}
 
     def retry_date(
@@ -449,6 +454,23 @@ class WebAppTests(unittest.TestCase):
             headers=self.headers,
         )
         self.assertEqual(future.status_code, 400)
+
+    def test_queue_range_can_explicitly_reprocess_completed_dates(self) -> None:
+        response = self.client.post(
+            "/api/queue/range",
+            json={
+                "from_date": "2026-08-01",
+                "to_date": "2026-08-07",
+                "reprocess": True,
+                "keep_raw": False,
+            },
+            headers=self.headers,
+        )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(
+            self.store.queued_ranges,
+            [(date(2026, 8, 1), date(2026, 8, 7), True, False, "DIRECT")],
+        )
 
     def test_pi_raw_source_requires_server_config_and_is_forwarded(self) -> None:
         unavailable = self.client.post(

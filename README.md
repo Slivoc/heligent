@@ -6,16 +6,19 @@ coverage-aware analytics workspace, the Phase 5 natural-language query
 prototype, the Phase 6 airport-movement candidate model, the Phase 7
 public-demo boundary, the Phase 8 company/operator/MRO foundation, and Phase 9
 manual customer/base curation. Phase 11 adds authoritative national aircraft
-registry snapshots for Canada, the United States and Australia. The retained
+registry snapshots for Canada, the United States and Australia. Phase 15 adds
+compact flight episodes, repeat airport visits, and provisional MRO-stay
+intervals. The retained
 data deliberately optimizes for:
 
 - airport/hub traffic by tail and aircraft type;
 - estimated tail active, airborne, and ground-active hours;
-- compact daily summaries rather than retained journeys or positions;
+- compact daily summaries and evidence-bearing episodes rather than positions;
 - explicit source provenance, retries, idempotency, and raw-file deletion.
 
 Individual ADS-B positions exist only while one aircraft gzip member is being
-summarized. They are not inserted into PostgreSQL.
+summarized. They are not inserted into PostgreSQL; inferred flights and airport
+visits retain their evidence, coverage gaps, and confidence instead.
 
 ## Raspberry Pi raw archive
 
@@ -243,7 +246,8 @@ daily unique-tail and observation charts; aircraft-type metrics; busiest-hub
 and most-active-tail tables; and a conservative classified-rotorcraft view.
 
 Every partial date range is labelled before its charts and tables are shown.
-Journey segmentation remains deliberately out of scope. See
+Flight and repeat-visit processing is documented separately from these original
+daily rollups. See
 `docs/phase4-basic-analytics.md` for metric and classification details.
 
 ## Phase 3 data management
@@ -312,9 +316,16 @@ assets and rolls back all replacement rows.
 - compressed and expanded source bytes.
 
 `aircraft_airport_day` has one row per tail/airport/day, including observed
-ground time, ground-active time, closest distance, conservative arrival and
-departure candidate counts, evidence method, and a single primary airport for
-the tail/day.
+ground time, ground-active time, closest distance, aggregated repeat visits,
+conservative arrival and departure candidate counts, evidence method, and a
+single primary airport for the tail/day.
+
+`aircraft_flight_segment` retains inferred airborne episodes with separate
+observed and elapsed duration, origin/destination evidence, confidence and
+coverage flags. `aircraft_airport_visit` retains repeated airport contacts and
+open day boundaries. See
+[`docs/phase15-flight-visits-and-maintenance-foundation.md`](docs/phase15-flight-visits-and-maintenance-foundation.md)
+for the rebuild procedure and provisional Maintenance Pulse views.
 
 The views `aircraft_type_day_metrics`, `airport_day_metrics`, and
 `airport_day_type_metrics` provide ready-made type and hub rollups. For
@@ -358,15 +369,17 @@ These are observational estimates, not certified logbook hours:
   `ground` and has numeric altitude.
 - **Ground-active time:** qualifying ground-to-ground intervals with at least
   5 knots at either endpoint.
-- **Airport presence:** one tail-airport link per UTC day, created from either
-  explicit ground observations or a low, slow first/last trace endpoint inside
-  a configurable airport radius. Endpoint inference requires the trace to move
-  beyond a larger exit radius before it records a departure or arrival
-  candidate. Candidate scoring favours major scheduled airports over embedded
-  helipads. No journey rows or positions are retained.
-- **Movement candidate:** at most one inferred arrival and one inferred
-  departure per tail/airport/day. These are conservative analytical indicators,
-  not certified airport records or perfect flight segmentation.
+- **Airport presence:** one compatibility link per tail/airport/day, aggregated
+  from distinct visit episodes using direct ground evidence, tight internal
+  low/slow contacts, and broader low/slow evidence only at trace boundaries.
+- **Movement candidate:** an inferred arrival or departure attached to a visit
+  that crosses the airport hysteresis radius. A tail can now produce multiple
+  candidates at one airport/day. These are conservative analytical indicators,
+  not certified airport records.
+- **Flight episode:** a run of airborne observations separated by ground/airport
+  contact or a 30-minute discontinuity. Observed time excludes gaps over 120
+  seconds; elapsed time retains the inferred boundary span and reports the
+  unobserved portion explicitly.
 - **Primary airport:** the strongest evidence-ranked airport for the tail/day;
   direct ground evidence wins before duration, movement count, observation
   count, and proximity tie-breakers.

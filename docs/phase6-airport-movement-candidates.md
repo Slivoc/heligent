@@ -12,13 +12,19 @@ elevation, and no faster than 200 knots. It becomes a departure or arrival
 candidate only if another trace position is outside a larger hysteresis zone:
 the greater of radius + 1 NM or radius × 1.5.
 
-PostgreSQL still stores no positions or journeys. `aircraft_airport_day` retains
-only:
+In the original Phase 6 model PostgreSQL stored no positions or journeys.
+`aircraft_airport_day` retained only:
 
 - direct ground-observation counts and time estimates;
 - inferred endpoint count and evidence method;
 - at most one arrival and one departure candidate per tail/airport/day;
 - the closest airport distance and evidence timestamps.
+
+This document describes the original Phase 6 compatibility metric. Phase 15
+now retains compact flight and visit episodes (still no positions), allows
+multiple visits and movement candidates per tail/airport/day, and rolls them
+back into `aircraft_airport_day`. See
+[`phase15-flight-visits-and-maintenance-foundation.md`](phase15-flight-visits-and-maintenance-foundation.md).
 
 Direct ground evidence outranks inferred evidence when choosing a primary
 airport. Hub and hub/type rollups expose candidate movements separately from

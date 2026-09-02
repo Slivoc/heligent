@@ -20,6 +20,7 @@ PHASE9_MIGRATION = PROJECT_ROOT / "schema" / "phase9.sql"
 PHASE10_MIGRATION = PROJECT_ROOT / "schema" / "phase10.sql"
 PHASE11_MIGRATION = PROJECT_ROOT / "schema" / "phase11.sql"
 PHASE12_MIGRATION = PROJECT_ROOT / "schema" / "phase12.sql"
+PHASE15_MIGRATION = PROJECT_ROOT / "schema" / "phase15.sql"
 MAX_ANALYTICS_DAYS = 366
 ANALYTICS_STATEMENT_TIMEOUT_MS = 30_000
 WORLD_REGION_ALIASES: dict[str, tuple[str, ...]] = {
@@ -208,6 +209,9 @@ class AnalyticsStore:
         self.store.apply_schema_once(path)
 
     def apply_phase12_migration(self, path: Path = PHASE12_MIGRATION) -> None:
+        self.store.apply_schema_once(path)
+
+    def apply_phase15_migration(self, path: Path = PHASE15_MIGRATION) -> None:
         self.store.apply_schema_once(path)
 
     def refresh_nl_operator_cache(self) -> None:

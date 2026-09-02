@@ -40,6 +40,9 @@ customisation screen:
 The operating system can stay on the microSD card, but the archive data and its
 SQLite queue should live on the SSD. Format the SSD as ext4, mount it at
 `/mnt/adsb-archive`, and connect it to one of the Pi 400's blue USB 3 ports.
+Add the SSD to `/etc/fstab` by filesystem UUID (use `sudo blkid` to find it),
+with `nofail,x-systemd.device-timeout=30s` options, then confirm the setup with
+`sudo mount -a` and `mountpoint /mnt/adsb-archive` before enabling the services.
 
 USB 3 and SSH do different jobs:
 
@@ -78,6 +81,7 @@ adsb-archive retry 2026-08-20
 adsb-archive retry                 # all failed dates
 adsb-archive verify 2026-08-20
 adsb-archive verify                # every completed date; potentially slow
+adsb-archive verify-next           # one never/least-recently checked day
 ```
 
 The latest job has priority 100 and manual backfills have priority 0. A running
@@ -127,6 +131,7 @@ sudo cp deploy/raspberry-pi/adsb-archive-*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now adsb-archive-worker@YOUR_USER.service
 sudo systemctl enable --now adsb-archive-latest@YOUR_USER.timer
+sudo systemctl enable --now adsb-archive-verify@YOUR_USER.timer
 sudo systemctl enable --now adsb-archive-api@YOUR_USER.service
 ```
 
@@ -134,6 +139,16 @@ The timer checks at 06:15 UTC with up to 15 minutes of random delay and catches
 up after downtime (`Persistent=true`). It discovers the newest date actually
 published in `PREFERRED_RELEASES.txt`; it does not assume yesterday is ready.
 The continuously running worker notices the new queue item within 30 seconds.
+The integrity timer re-hashes one never or least-recently verified completed day
+each night, so coverage rotates through the archive without an increasingly long
+full-disk scan. A corrupt day fails visibly in the service journal and remains
+the next verification candidate until it is repaired.
+
+All archive services refuse to start unless `/mnt/adsb-archive` is an actual
+mount point. This prevents a disconnected or failed SSD from silently redirecting
+multi-gigabyte downloads onto the Pi's microSD card. If you deliberately choose
+a different mount point, update `ConditionPathIsMountPoint` in each installed
+archive service as well as `ADSB_ARCHIVE_ROOT`.
 
 Useful checks:
 
@@ -141,12 +156,40 @@ Useful checks:
 systemctl list-timers 'adsb-archive-*'
 systemctl status adsb-archive-worker@YOUR_USER.service
 journalctl -u adsb-archive-worker@YOUR_USER.service -f
+systemctl status adsb-archive-verify@YOUR_USER.timer
+mountpoint /mnt/adsb-archive
 ADSB_ARCHIVE_ROOT=/mnt/adsb-archive /opt/heligent/.venv/bin/adsb-archive status
 ```
 
 A read-only fine-grained `GITHUB_TOKEN` is optional. Put it in
 `/etc/heligent/adsb-archive`, not the repository, if backfilling enough dates to
 encounter GitHub's anonymous API limit.
+
+## Updating the Pi checkout
+
+Updating the application does not rewrite completed archives or the SQLite
+queue. From an SSH session on the Pi, pull the code, refresh the virtual
+environment, install the current unit files, and restart the services:
+
+```bash
+cd /opt/heligent
+git pull --ff-only
+.venv/bin/pip install -e .
+sudo cp deploy/raspberry-pi/adsb-archive-*.service /etc/systemd/system/
+sudo cp deploy/raspberry-pi/adsb-archive-*.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now adsb-archive-worker@YOUR_USER.service
+sudo systemctl enable --now adsb-archive-latest@YOUR_USER.timer
+sudo systemctl enable --now adsb-archive-verify@YOUR_USER.timer
+sudo systemctl enable --now adsb-archive-api@YOUR_USER.service
+sudo systemctl restart adsb-archive-worker@YOUR_USER.service
+sudo systemctl restart adsb-archive-api@YOUR_USER.service
+```
+
+Use a read-only GitHub deploy key on the Pi if the repository is private. The
+Pi needs its own private key; do not copy the VPS private key between machines.
+After updating, check the four units and call the API's `/health` endpoint over
+its Tailscale Serve URL.
 
 ## Feeding an archived day to the main app
 
@@ -191,6 +234,14 @@ day is absent from the Pi, the job fails clearly and can be retried with the
 direct source. In both modes, the main machine downloads into its normal
 transient raw directory, verifies SHA-256, parses locally, and applies the
 existing raw-retention setting.
+
+After a parser upgrade, Data control can rebuild a date range from the Pi: set
+the source to **Raspberry Pi archive API**, choose up to 31 days, and enable
+**Reprocess completed dates in this range**. The VPS processes the dates
+sequentially and deletes only its transferred copy after each successful
+commit. The retained Pi release is never changed. The flight/visit rebuild and
+Maintenance Pulse validation procedure is in
+[`phase15-flight-visits-and-maintenance-foundation.md`](phase15-flight-visits-and-maintenance-foundation.md).
 
 The command-line equivalent is:
 

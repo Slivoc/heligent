@@ -2,6 +2,8 @@
 Description=Heligent read-only ADS-B archive API for %i
 Wants=network-online.target
 After=network-online.target adsb-archive-worker@%i.service
+RequiresMountsFor=/mnt/adsb-archive
+ConditionPathIsMountPoint=/mnt/adsb-archive
 
 [Service]
 Type=simple

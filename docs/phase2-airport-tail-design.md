@@ -13,6 +13,11 @@ journey or individual position. This supports questions such as:
 The pipeline intentionally does not try to reconstruct perfect flights,
 origins/destinations, or routes.
 
+This is the original daily-summary design. Phase 15 retains compact inferred
+flight and repeat-visit episodes without storing positions; the daily tables
+remain its compatibility rollups. See
+[`phase15-flight-visits-and-maintenance-foundation.md`](phase15-flight-visits-and-maintenance-foundation.md).
+
 ## Airport association
 
 The reference source is the public-domain OurAirports `airports.csv`. Closed

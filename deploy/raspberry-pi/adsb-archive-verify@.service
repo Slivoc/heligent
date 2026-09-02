@@ -1,7 +1,5 @@
 [Unit]
-Description=Queue the latest ADSB.lol raw archive for %i
-Wants=network-online.target
-After=network-online.target
+Description=Verify one retained Heligent ADS-B archive day for %i
 RequiresMountsFor=/mnt/adsb-archive
 ConditionPathIsMountPoint=/mnt/adsb-archive
 
@@ -10,7 +8,8 @@ Type=oneshot
 User=%i
 WorkingDirectory=/opt/heligent
 EnvironmentFile=/etc/heligent/adsb-archive
-ExecStart=/opt/heligent/.venv/bin/adsb-archive queue-latest
-Nice=10
+ExecStart=/opt/heligent/.venv/bin/adsb-archive verify-next
+Nice=15
+IOSchedulingClass=idle
 NoNewPrivileges=true
 PrivateTmp=true

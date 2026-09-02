@@ -13,7 +13,7 @@ from psycopg.types.json import Jsonb
 
 from .adsblol import DayReleases
 from .airports import AirportCatalog
-from .summarize import AircraftDaySummary, AirportPresenceSummary
+from .summarize import DERIVATION_VERSION, TraceSummary
 
 
 AIRCRAFT_STAGE_COLUMNS = (
@@ -83,6 +83,56 @@ AIRPORT_DAY_STAGE_COLUMNS = (
     "arrival_count",
     "departure_count",
     "link_method",
+)
+
+FLIGHT_SEGMENT_STAGE_COLUMNS = (
+    "dataset_day_id",
+    "utc_date",
+    "address",
+    "segment_sequence",
+    "first_airborne_at",
+    "last_airborne_at",
+    "takeoff_at",
+    "landing_at",
+    "origin_airport_ident",
+    "destination_airport_ident",
+    "origin_evidence",
+    "destination_evidence",
+    "observation_count",
+    "observed_airborne_seconds",
+    "elapsed_airborne_seconds",
+    "unobserved_seconds",
+    "estimated_distance_nm",
+    "max_altitude_ft",
+    "max_ground_speed_knots",
+    "callsigns",
+    "starts_before_window",
+    "ends_after_window",
+    "confidence",
+    "quality_flags",
+)
+
+AIRPORT_VISIT_STAGE_COLUMNS = (
+    "dataset_day_id",
+    "utc_date",
+    "address",
+    "visit_sequence",
+    "airport_ident",
+    "first_evidence_at",
+    "last_evidence_at",
+    "arrived_at",
+    "departed_at",
+    "ground_observation_count",
+    "proximity_observation_count",
+    "ground_time_seconds",
+    "ground_active_time_seconds",
+    "closest_distance_nm",
+    "arrival_evidence",
+    "departure_evidence",
+    "open_at_start",
+    "open_at_end",
+    "confidence",
+    "quality_flags",
 )
 
 
@@ -504,6 +554,8 @@ class PostgresStore:
                 pg_total_relation_size('aircraft')
               + pg_total_relation_size('aircraft_day')
               + pg_total_relation_size('aircraft_airport_day')
+              + pg_total_relation_size('aircraft_flight_segment')
+              + pg_total_relation_size('aircraft_airport_visit')
             """
         ).fetchone()
         return int(row[0])
@@ -512,20 +564,24 @@ class PostgresStore:
         self,
         dataset_day_id: int,
         job_id: int,
-        summaries: Iterator[
-            tuple[AircraftDaySummary, tuple[AirportPresenceSummary, ...]]
-        ],
+        summaries: Iterator[TraceSummary],
         *,
         batch_size: int = 1_000,
         heartbeat_every: int = 5_000,
+        derivation_version: str = DERIVATION_VERSION,
+        derivation_config: dict[str, object] | None = None,
     ) -> dict[str, int]:
         started = time.monotonic()
         aircraft_count = 0
         observation_count = 0
         airport_presence_count = 0
+        flight_segment_count = 0
+        airport_visit_count = 0
         aircraft_rows: list[tuple[object, ...]] = []
         aircraft_day_rows: list[tuple[object, ...]] = []
         airport_day_rows: list[tuple[object, ...]] = []
+        flight_segment_rows: list[tuple[object, ...]] = []
+        airport_visit_rows: list[tuple[object, ...]] = []
 
         with self.connect() as connection:
             before_bytes = self._relation_bytes(connection)
@@ -541,6 +597,18 @@ class PostgresStore:
                 """
                 CREATE TEMP TABLE aircraft_airport_day_stage
                 (LIKE aircraft_airport_day INCLUDING DEFAULTS) ON COMMIT DROP
+                """
+            )
+            connection.execute(
+                """
+                CREATE TEMP TABLE aircraft_flight_segment_stage
+                (LIKE aircraft_flight_segment INCLUDING DEFAULTS) ON COMMIT DROP
+                """
+            )
+            connection.execute(
+                """
+                CREATE TEMP TABLE aircraft_airport_visit_stage
+                (LIKE aircraft_airport_visit INCLUDING DEFAULTS) ON COMMIT DROP
                 """
             )
 
@@ -563,11 +631,33 @@ class PostgresStore:
                         airport_day_rows,
                     )
                     airport_day_rows.clear()
+                if flight_segment_rows:
+                    _copy_rows(
+                        connection,
+                        "aircraft_flight_segment_stage",
+                        FLIGHT_SEGMENT_STAGE_COLUMNS,
+                        flight_segment_rows,
+                    )
+                    flight_segment_rows.clear()
+                if airport_visit_rows:
+                    _copy_rows(
+                        connection,
+                        "aircraft_airport_visit_stage",
+                        AIRPORT_VISIT_STAGE_COLUMNS,
+                        airport_visit_rows,
+                    )
+                    airport_visit_rows.clear()
 
-            for summary, presences in summaries:
+            for trace_summary in summaries:
+                summary = trace_summary.aircraft_day
+                presences = trace_summary.airport_presences
+                segments = trace_summary.flight_segments
+                visits = trace_summary.airport_visits
                 aircraft_count += 1
                 observation_count += summary.observation_count
                 airport_presence_count += len(presences)
+                flight_segment_count += len(segments)
+                airport_visit_count += len(visits)
                 aircraft_rows.append(
                     (
                         summary.address,
@@ -641,6 +731,60 @@ class PostgresStore:
                     )
                     for item in presences
                 )
+                flight_segment_rows.extend(
+                    (
+                        dataset_day_id,
+                        item.utc_date,
+                        item.address,
+                        item.segment_sequence,
+                        item.first_airborne_at,
+                        item.last_airborne_at,
+                        item.takeoff_at,
+                        item.landing_at,
+                        item.origin_airport_ident,
+                        item.destination_airport_ident,
+                        item.origin_evidence,
+                        item.destination_evidence,
+                        item.observation_count,
+                        item.observed_airborne_seconds,
+                        item.elapsed_airborne_seconds,
+                        item.unobserved_seconds,
+                        item.estimated_distance_nm,
+                        item.max_altitude_ft,
+                        item.max_ground_speed_knots,
+                        list(item.callsigns),
+                        item.starts_before_window,
+                        item.ends_after_window,
+                        item.confidence,
+                        list(item.quality_flags),
+                    )
+                    for item in segments
+                )
+                airport_visit_rows.extend(
+                    (
+                        dataset_day_id,
+                        item.utc_date,
+                        item.address,
+                        item.visit_sequence,
+                        item.airport_ident,
+                        item.first_evidence_at,
+                        item.last_evidence_at,
+                        item.arrived_at,
+                        item.departed_at,
+                        item.ground_observation_count,
+                        item.proximity_observation_count,
+                        item.ground_time_seconds,
+                        item.ground_active_time_seconds,
+                        item.closest_distance_nm,
+                        item.arrival_evidence,
+                        item.departure_evidence,
+                        item.open_at_start,
+                        item.open_at_end,
+                        item.confidence,
+                        list(item.quality_flags),
+                    )
+                    for item in visits
+                )
                 if len(aircraft_rows) >= batch_size:
                     flush()
                 if aircraft_count % heartbeat_every == 0:
@@ -650,6 +794,13 @@ class PostgresStore:
                     )
             flush()
 
+            # Reprocessing must invalidate the Phase 12 identity/activity cache.
+            # The area cache cascades with aircraft_day; this cache references the
+            # durable aircraft and dataset rows and would otherwise remain stale.
+            connection.execute(
+                "DELETE FROM nl_aircraft_activity_cache WHERE dataset_day_id = %s",
+                (dataset_day_id,),
+            )
             connection.execute(
                 "DELETE FROM aircraft_day WHERE dataset_day_id = %s", (dataset_day_id,)
             )
@@ -698,6 +849,22 @@ class PostgresStore:
                 FROM aircraft_airport_day_stage
                 """
             )
+            connection.execute(
+                f"""
+                INSERT INTO aircraft_flight_segment
+                    ({', '.join(FLIGHT_SEGMENT_STAGE_COLUMNS)})
+                SELECT {', '.join(FLIGHT_SEGMENT_STAGE_COLUMNS)}
+                FROM aircraft_flight_segment_stage
+                """
+            )
+            connection.execute(
+                f"""
+                INSERT INTO aircraft_airport_visit
+                    ({', '.join(AIRPORT_VISIT_STAGE_COLUMNS)})
+                SELECT {', '.join(AIRPORT_VISIT_STAGE_COLUMNS)}
+                FROM aircraft_airport_visit_stage
+                """
+            )
             after_bytes = self._relation_bytes(connection)
             duration_ms = round((time.monotonic() - started) * 1000)
             connection.execute(
@@ -706,6 +873,8 @@ class PostgresStore:
                 SET status = 'PROCESSED', processing_finished_at = clock_timestamp(),
                     source_aircraft_count = %s, source_record_count = %s,
                     derived_record_count = %s, airport_presence_record_count = %s,
+                    flight_segment_record_count = %s, airport_visit_record_count = %s,
+                    derivation_version = %s, derivation_config = %s,
                     processing_duration_ms = %s,
                     derived_bytes_estimate = CASE
                         WHEN (
@@ -723,6 +892,10 @@ class PostgresStore:
                     observation_count,
                     aircraft_count,
                     airport_presence_count,
+                    flight_segment_count,
+                    airport_visit_count,
+                    derivation_version,
+                    Jsonb(derivation_config or {}),
                     duration_ms,
                     job_id,
                     max(0, after_bytes - before_bytes),
@@ -738,8 +911,9 @@ class PostgresStore:
                 WHERE id = %s
                 """,
                 (
-                    f"Processed {aircraft_count:,} aircraft and "
-                    f"{observation_count:,} observations",
+                    f"Processed {aircraft_count:,} aircraft, "
+                    f"{observation_count:,} observations, {flight_segment_count:,} "
+                    f"flight segments and {airport_visit_count:,} airport visits",
                     job_id,
                 ),
             )
@@ -749,6 +923,8 @@ class PostgresStore:
             "aircraft_count": aircraft_count,
             "observation_count": observation_count,
             "airport_presence_count": airport_presence_count,
+            "flight_segment_count": flight_segment_count,
+            "airport_visit_count": airport_visit_count,
             "processing_duration_ms": duration_ms,
         }
 

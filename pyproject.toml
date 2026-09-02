@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "heligent-adsb-ingest"
-version = "0.9.0"
+version = "0.10.0"
 description = "Bounded inspection and ingestion tooling for ADSB.lol historical archives"
 requires-python = ">=3.11"
 dependencies = [

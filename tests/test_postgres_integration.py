@@ -40,6 +40,7 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase10.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase11.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase12.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase15.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase14.sql")
         # Application startup replays every idempotent migration. Phase 9 adds
         # company columns, so Phase 8 views must remain stable on the next run.
@@ -48,6 +49,7 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase10.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase11.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase12.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase15.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase14.sql")
 
     def fixture(self):
@@ -96,6 +98,7 @@ class PostgresIntegrationTests(unittest.TestCase):
                 trace_row(0, 51.0, -1.0, "ground", 0, flight="TEST1"),
                 trace_row(30, 51.001, -1.0, "ground", 10, flight="TEST1"),
                 trace_row(60, 51.01, -1.0, 500, 100, flight="TEST1"),
+                trace_row(90, 51.1, -1.0, 1_500, 120, flight="TEST1"),
             ],
         }
         trace = TracePayload("trace.json", "abcdef", 100, 500, payload)
@@ -313,12 +316,25 @@ class PostgresIntegrationTests(unittest.TestCase):
         result = self.store.load_summaries(dataset_id, process_job, iter([summary]))
         self.assertEqual(result["aircraft_count"], 1)
         self.assertEqual(result["airport_presence_count"], 1)
+        self.assertEqual(result["flight_segment_count"], 1)
+        self.assertEqual(result["airport_visit_count"], 1)
         with self.store.connect() as connection:
             initial_derived_bytes = connection.execute(
                 "SELECT derived_bytes_estimate FROM dataset_day WHERE id = %s",
                 (dataset_id,),
             ).fetchone()[0]
+            episode_metadata = connection.execute(
+                """
+                SELECT flight_segment_record_count, airport_visit_record_count,
+                       derivation_version, derivation_config
+                FROM dataset_day
+                WHERE id = %s
+                """,
+                (dataset_id,),
+            ).fetchone()
         self.assertIsNotNone(initial_derived_bytes)
+        self.assertEqual(episode_metadata[:3], (1, 1, "flight-visits-v1"))
+        self.assertEqual(episode_metadata[3], {})
         already_processed = self.store.enqueue_date(discovery.utc_date)
         self.assertEqual(already_processed["outcome"], "SKIPPED_ALREADY_PROCESSED")
 
@@ -348,6 +364,14 @@ class PostgresIntegrationTests(unittest.TestCase):
             self.assertEqual(connection.execute("SELECT count(*) FROM aircraft_day").fetchone()[0], 1)
             self.assertEqual(
                 connection.execute("SELECT count(*) FROM aircraft_airport_day").fetchone()[0],
+                1,
+            )
+            self.assertEqual(
+                connection.execute("SELECT count(*) FROM aircraft_flight_segment").fetchone()[0],
+                1,
+            )
+            self.assertEqual(
+                connection.execute("SELECT count(*) FROM aircraft_airport_visit").fetchone()[0],
                 1,
             )
             metrics = connection.execute(
@@ -540,6 +564,10 @@ class PostgresIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(daily[0]["registration"], "G-TEST")
         self.assertEqual(daily[0]["airports"][0]["ident"], "TEST")
+        self.assertEqual(daily[0]["flight_segment_count"], 1)
+        self.assertEqual(daily[0]["airport_visit_count"], 1)
+        self.assertEqual(daily[0]["derivation_version"], "flight-visits-v1")
+        self.assertGreaterEqual(daily[0]["elapsed_flight_hours"], 0)
         self.assertIsNotNone(daily[0]["data_revision"])
 
         ranked_aircraft = service.region_aircraft_rankings(

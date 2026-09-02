@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly rotating integrity check for Heligent ADS-B archive
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+Persistent=true
+RandomizedDelaySec=30m
+Unit=adsb-archive-verify@%i.service
+
+[Install]
+WantedBy=timers.target
