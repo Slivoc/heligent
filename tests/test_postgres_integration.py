@@ -19,6 +19,7 @@ from adsb_ingest.airports import Airport, AirportCatalog, AirportIndex
 from adsb_ingest.archive import TracePayload
 from adsb_ingest.summarize import summarize_trace
 from adsb_ingest.work_queue import AdminStore, SequentialIngestionWorker
+from adsb_ingest.maintenance import MaintenanceStore
 from test_phase2 import trace_row
 
 
@@ -42,6 +43,7 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase12.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase15.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase14.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase16.sql")
         # Application startup replays every idempotent migration. Phase 9 adds
         # company columns, so Phase 8 views must remain stable on the next run.
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase8.sql")
@@ -51,6 +53,23 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase12.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase15.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase14.sql")
+
+    def test_maintenance_review_survives_archive_and_revision(self):
+        pulse = MaintenanceStore(self.store)
+        watch = pulse.add({'registration': 'G-PULSE'}, 'analyst@example.com')
+        self.assertEqual(watch['id'], pulse.add({'registration': 'gpulse'}, 'analyst@example.com')['id'])
+        payload = dict(started_at='2025-01-01T00:00:00Z', ended_at='2025-01-02T00:00:00Z',
+                       maintenance_kind='100 hour check', status='CONFIRMED', notes='Operator confirmation')
+        event = pulse.review(watch['id'], payload, 'analyst@example.com')
+        revised = pulse.review(watch['id'], {**payload, 'event_id':event['id'], 'status':'UNCERTAIN'}, 'reviewer@example.com')
+        self.assertEqual(revised['id'], event['id'])
+        with self.store.connect() as c:
+            snapshot = c.execute('SELECT snapshot FROM maintenance_event_revision WHERE event_id=%s', (event['id'],)).fetchone()[0]
+        self.assertEqual(snapshot['status'], 'CONFIRMED')
+        pulse.archive(watch['id'])
+        self.assertNotIn(watch['id'], [w['id'] for w in pulse.watches()])
+        self.assertEqual(len(pulse.detail(watch['id'])['events']), 1)
+        self.assertEqual(pulse.add({'registration':'G-PULSE'}, 'analyst@example.com')['id'], watch['id'])
 
     def fixture(self):
         airport = Airport(

@@ -17,6 +17,7 @@ from waitress import serve
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .analytics import AnalyticsStore
+from .maintenance import MaintenanceStore
 from .access import AccessStore, AccessUser, normalize_email, normalize_role
 from .companies import PHASE8_MIGRATION
 from .natural_language import NaturalLanguageAnalytics, QueryPlannerUnavailable
@@ -43,6 +44,9 @@ PUBLIC_DEMO_ENDPOINTS = frozenset(
     }
 )
 MUTATION_MINIMUM_ROLE = {
+    "maintenance_add": "ANALYST",
+    "maintenance_review": "ANALYST",
+    "maintenance_archive": "ANALYST",
     "natural_language_query": "VIEWER",
     "set_aircraft_operator": "ANALYST",
     "update_company_site_tracking": "ANALYST",
@@ -234,6 +238,7 @@ def create_app(
         analytics.apply_phase11_migration()
         analytics.apply_phase12_migration()
         analytics.apply_phase15_migration()
+        admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase16.sql')
     query_service = natural_language or SemanticNaturalLanguageAnalytics(analytics)
     worker = SequentialIngestionWorker(
         admin_store,
@@ -625,6 +630,29 @@ def create_app(
         response.headers["X-RateLimit-Limit"] = str(decision.client_limit)
         response.headers["X-RateLimit-Remaining"] = str(decision.client_remaining)
         return response
+
+    @app.get('/api/maintenance/watches')
+    def maintenance_watches():
+        return jsonify(_json_ready(MaintenanceStore(admin_store).watches()))
+
+    @app.post('/api/maintenance/watches')
+    def maintenance_add():
+        user = request.environ['heligent.user']
+        return jsonify(_json_ready(MaintenanceStore(admin_store).add(request.get_json() or {}, user.email))), 201
+
+    @app.get('/api/maintenance/watches/<int:watch_id>')
+    def maintenance_detail(watch_id):
+        return jsonify(_json_ready(MaintenanceStore(admin_store).detail(watch_id)))
+
+    @app.post('/api/maintenance/watches/<int:watch_id>/reviews')
+    def maintenance_review(watch_id):
+        user = request.environ['heligent.user']
+        return jsonify(_json_ready(MaintenanceStore(admin_store).review(watch_id, request.get_json() or {}, user.email))), 201
+
+    @app.post('/api/maintenance/watches/<int:watch_id>/archive')
+    def maintenance_archive(watch_id):
+        MaintenanceStore(admin_store).archive(watch_id)
+        return jsonify({'status': 'ARCHIVED'})
 
     @app.post("/api/queue/date")
     def queue_date() -> tuple[dict[str, Any], int]:
