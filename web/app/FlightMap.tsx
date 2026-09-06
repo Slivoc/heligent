@@ -5,21 +5,18 @@ import type * as Leaflet from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./flight-map.css";
 
-type Fix = [number, number, number, number | null]; // epoch seconds, lat, lon, altitude ft
-type Track = { segments: Fix[][]; retained_count: number; input_count: number; truncated: boolean };
 type Watch = { id: number; registration: string };
-type Flight = { dataset_day_id: number; address: string; segment_sequence: number; takeoff_at: string; landing_at: string; origin_airport_ident: string | null; destination_airport_ident: string | null; origin_lat: number | null; origin_lon: number | null; destination_lat: number | null; destination_lon: number | null; track: Track | null; track_omitted: boolean; confidence: string; quality_flags: string[] };
-type Visit = { airport_ident: string; airport_name: string; latitude_deg: number; longitude_deg: number; first_evidence_at: string; last_evidence_at: string; confidence: string; ground_observation_count: number };
+type Stop = { number: number; dataset_day_id: number; address: string; visit_sequence: number; airport_ident: string; airport_name: string; latitude_deg: number; longitude_deg: number; first_evidence_at: string; last_evidence_at: string; arrived_at: string | null; departed_at: string | null; ground_time_seconds: number; evidence_span_seconds: number; confidence: string; ground_observation_count: number; proximity_observation_count: number; closest_distance_nm: number; arrival_evidence: string | null; departure_evidence: string | null; open_at_start: boolean; open_at_end: boolean; quality_flags: string[] };
 type Approval = { id: number; approval_number: string; approval_status: string; valid_from: string | null; valid_to: string | null; source_url: string | null; last_verified_at: string | null; linked_site_ids: number[] };
 type Match = "SITE_MATCH" | "COMPANY_MATCH" | "APPROVAL_NOT_CURRENT" | "NO_RECORDED_MATCH";
 type Capability = Approval & { company_site_id: number | null; capability_kind: string; aircraft_type_code: string | null; manufacturer: string | null; model: string | null; limitation: string | null; rating_code: string | null; is_base_maintenance: boolean; is_line_maintenance: boolean; match: Match };
 type Site = { id: number; company_name: string; name: string; airport_ident: string | null; latitude_deg: number | null; longitude_deg: number | null; location_precision: string; capabilities: Capability[]; approvals: Approval[]; match: Match };
-type MapData = { watch: Watch; from: string; to: string; latest_processed: string | null; type_code: string | null; type_codes: string[]; addresses: string[]; processed_days: { utc_date: string; derivation_version: string | null }[]; expected_days: number; flights: Flight[]; visits: Visit[]; sites: Site[]; flights_truncated: boolean; visits_truncated: boolean; sites_truncated: boolean; capabilities_truncated: boolean; approval_as_of: string };
+type MapData = { watch: Watch; from: string; to: string; latest_processed: string | null; type_code: string | null; type_codes: string[]; addresses: string[]; processed_days: { utc_date: string; derivation_version: string | null }[]; expected_days: number; stops: Stop[]; sites: Site[]; stops_truncated: boolean; sites_truncated: boolean; capabilities_truncated: boolean; approval_as_of: string };
 const labels: Record<Match, string> = { SITE_MATCH: "Site-specific type match", COMPANY_MATCH: "Company-wide type match only", APPROVAL_NOT_CURRENT: "Type recorded; approval not current", NO_RECORDED_MATCH: "No recorded type match" };
 const colors: Record<Match, string> = { SITE_MATCH: "#059669", COMPANY_MATCH: "#d97706", APPROVAL_NOT_CURRENT: "#c24154", NO_RECORDED_MATCH: "#64748b" };
-const flightId = (f: Flight) => `${f.dataset_day_id}:${f.address}:${f.segment_sequence}`;
+const stopId = (s: Stop) => `${s.dataset_day_id}:${s.address}:${s.visit_sequence}`;
 const utc = (s: string) => new Date(s).toISOString().replace("T", " ").slice(0, 16) + " UTC";
-const route = (f: Flight) => `${f.origin_airport_ident || "Unknown origin"} → ${f.destination_airport_ident || "Unknown destination"}`;
+const duration = (seconds: number) => seconds < 60 ? `${Math.round(seconds)} sec` : seconds < 3600 ? `${Math.round(seconds / 60)} min` : `${(seconds / 3600).toFixed(1)} hr`;
 const safeUrl = (url: string | null) => url && /^https?:\/\//i.test(url) ? url : undefined;
 async function get<T>(path: string, signal: AbortSignal): Promise<T> {
   const r = await fetch(`/api/maintenance/${path}`, { signal });
@@ -41,21 +38,21 @@ export function FlightMap() {
   const [busy, setBusy] = useState(false);
   const [key, setKey] = useState<string | null>(null);
   const [tileError, setTileError] = useState(false);
-  const [selectedFlight, setSelectedFlight] = useState("");
+  const [selectedStop, setSelectedStop] = useState("");
+  const [atStopOnly, setAtStopOnly] = useState(true);
+  const [fitRevision, setFitRevision] = useState(0);
   const [selectedSite, setSelectedSite] = useState<Site | null>(null);
   const [matchesOnly, setMatchesOnly] = useState(false);
   const [showBases, setShowBases] = useState(true);
   const [search, setSearch] = useState("");
-  const [progress, setProgress] = useState(100);
-  const [playing, setPlaying] = useState(false);
   const element = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Leaflet.Map | null>(null);
   const leaflet = useRef<typeof Leaflet | null>(null);
   const [ready, setReady] = useState(false);
 
   const load = useCallback((watch: string, start: string, end: string) => {
-    setBusy(Boolean(watch)); setError(""); setData(null); setSelectedFlight("");
-    setSelectedSite(null); setPlaying(false); setProgress(100);
+    setBusy(Boolean(watch)); setError(""); setData(null); setSelectedStop("");
+    setSelectedSite(null);
     setRequest(previous => ({ watch, from: start, to: end, revision: previous.revision + 1 }));
   }, []);
 
@@ -100,91 +97,73 @@ export function FlightMap() {
     return () => { disposed = true; instance?.remove(); mapRef.current = null; };
   }, [key]);
 
-  const flight = data?.flights.find(f => flightId(f) === selectedFlight);
-  const fixes = flight?.track?.segments.flat() || [];
-  const startTime = fixes[0]?.[0] || 0;
-  const endTime = fixes.at(-1)?.[0] || 0;
-  const cursorTime = startTime + (endTime - startTime) * progress / 100;
-  const cursorFix = fixes.findLast(p => p[0] <= cursorTime);
-  useEffect(() => {
-    if (!playing) return;
-    const timer = window.setTimeout(() => {
-      setProgress(Math.min(100, progress + 1));
-      if (progress >= 99) setPlaying(false);
-    }, 100);
-    return () => window.clearTimeout(timer);
-  }, [playing, progress]);
+  const stop = data?.stops.find(s => stopId(s) === selectedStop);
+  const visibleSites = (data?.sites || []).filter(s =>
+    (!matchesOnly || ["SITE_MATCH", "COMPANY_MATCH"].includes(s.match)) &&
+    (!atStopOnly || !stop || s.airport_ident === stop.airport_ident) &&
+    `${s.company_name} ${s.name} ${s.airport_ident || ""}`.toLowerCase().includes(search.toLowerCase()));
 
-  // Geometry updates do not reset pan/zoom; fit only on data/flight changes.
   useEffect(() => {
     const L = leaflet.current, map = mapRef.current;
     if (!L || !map || !ready || !data) return;
     const layer = L.featureGroup().addTo(map);
-    const popup = (title: string, detail: string) => {
-      const node = document.createElement("div");
-      const strong = document.createElement("strong"); strong.textContent = title;
-      const p = document.createElement("p"); p.textContent = detail;
-      node.append(strong, p); return node;
-    };
-    for (const f of data.flights.filter(f => !selectedFlight || flightId(f) === selectedFlight)) {
-      const description = `${utc(f.takeoff_at)} · ${f.address} · ${f.confidence} confidence. ${f.quality_flags.join(", ")}`;
-      if (f.track) {
-        for (const segment of f.track.segments) {
-          const points = segment.filter(p => !selectedFlight || p[0] <= cursorTime);
-          if (!points.length) continue;
-          const coords = points.map(p => [p[1], p[2]] as Leaflet.LatLngTuple);
-          const shape = coords.length > 1 ? L.polyline(coords, { color: "#2563eb", weight: 3 }) : L.circleMarker(coords[0], { radius: 3, color: "#2563eb" });
-          shape.bindPopup(popup(route(f), `Sampled ADS-B track. ${description}`)).on("click", () => { setSelectedFlight(flightId(f)); setProgress(100); setPlaying(false); }).addTo(layer);
-        }
-      } else if (!f.track_omitted && f.origin_lat != null && f.origin_lon != null && f.destination_lat != null && f.destination_lon != null && Math.abs(f.origin_lon - f.destination_lon) <= 180) {
-        L.polyline([[f.origin_lat, f.origin_lon], [f.destination_lat, f.destination_lon]], { color: "#64748b", dashArray: "6 8", weight: 2 })
-          .bindPopup(popup(route(f), `Inferred airport connection only — NOT an observed flight path. ${description}`)).addTo(layer);
+    // Connect consecutive records only within the same address, never across aircraft.
+    const previousByAddress = new Map<string, Stop>();
+    const byAirport = new Map<string, Stop[]>();
+    for (const s of data.stops) {
+      const previous = previousByAddress.get(s.address);
+      if (previous && previous.airport_ident !== s.airport_ident &&
+          Math.abs(previous.longitude_deg - s.longitude_deg) <= 180) {
+        const label = document.createElement("span");
+        label.textContent = `Stop ${previous.number} → ${s.number}: sequence of sightings only, not a flown route or proof of continuous coverage.`;
+        L.polyline([[previous.latitude_deg, previous.longitude_deg], [s.latitude_deg, s.longitude_deg]],
+          { color: "#64748b", dashArray: "5 9", weight: 2 }).bindPopup(label).addTo(layer);
       }
+      previousByAddress.set(s.address, s);
+      byAirport.set(s.airport_ident, [...(byAirport.get(s.airport_ident) || []), s]);
     }
-    for (const v of data.visits) {
-      if (flight && (v.last_evidence_at < flight.takeoff_at || v.first_evidence_at > flight.landing_at) && ![flight.origin_airport_ident, flight.destination_airport_ident].includes(v.airport_ident)) continue;
-      L.circleMarker([v.latitude_deg, v.longitude_deg], { radius: 6, color: "#0f172a", fillColor: "#fff", fillOpacity: 1, weight: 2 })
-        .bindPopup(popup(`${v.airport_ident} · ${v.airport_name}`, `${utc(v.first_evidence_at)} to ${utc(v.last_evidence_at)} · ${v.confidence} confidence · ${v.ground_observation_count} ground observations. Airport association, not proof of a facility visit.`)).addTo(layer);
+    // Group repeated visits at the same airport so later stops do not hide earlier ones.
+    for (const group of byAirport.values()) {
+      const s = group.find(s => stopId(s) === selectedStop) || group[0];
+      const active = group.some(s => stopId(s) === selectedStop);
+      const ground = Math.max(...group.map(s => s.ground_time_seconds));
+      const radius = 12 + Math.min(12, Math.sqrt(ground / 3600) * 4);
+      const label = document.createElement("span");
+      label.textContent = group.slice(0, 3).map(s => s.number).join(",") + (group.length > 3 ? "+" : "");
+      label.title = `${s.airport_ident}: stops ${group.map(s => s.number).join(", ")}. Select individual visits in the timeline.`;
+      L.circleMarker([s.latitude_deg, s.longitude_deg],
+        { radius, color: active ? "#2563eb" : "#0f172a", fillColor: active ? "#dbeafe" : "#fff", fillOpacity: 0.95, weight: active ? 3 : 2 })
+        .bindTooltip(label, { permanent: true, direction: "center", className: "map-stop-number" })
+        .on("click", () => { setSelectedStop(stopId(s)); setSelectedSite(null); }).addTo(layer);
     }
-    if (selectedFlight && cursorFix) L.circleMarker([cursorFix[1], cursorFix[2]], { radius: 8, color: "#1e3a8a", fillColor: "#60a5fa", fillOpacity: 1, weight: 3 })
-      .bindPopup(popup("Last observed fix", `${utc(new Date(cursorFix[0] * 1000).toISOString())} · ${cursorFix[3] ?? "Unknown"} ft`)).addTo(layer);
     return () => { layer.remove(); };
-  }, [data, ready, selectedFlight, cursorTime, cursorFix, flight]);
+  }, [data, ready, selectedStop]);
 
   useEffect(() => {
     const L = leaflet.current, map = mapRef.current;
     if (!L || !map || !ready || !data) return;
-    const selected = data.flights.filter(f => !selectedFlight || flightId(f) === selectedFlight);
-    const coords: Leaflet.LatLngTuple[] = [];
-    for (const f of selected) {
-      if (f.track) for (const segment of f.track.segments) for (const p of segment) coords.push([p[1], p[2]]);
-      if (f.origin_lat != null && f.origin_lon != null) coords.push([f.origin_lat, f.origin_lon]);
-      if (f.destination_lat != null && f.destination_lon != null) coords.push([f.destination_lat, f.destination_lon]);
-    }
-    if (!coords.length) for (const v of data.visits) coords.push([v.latitude_deg, v.longitude_deg]);
+    const coords = (stop ? [stop] : data.stops).map(s => [s.latitude_deg, s.longitude_deg] as Leaflet.LatLngTuple);
     if (coords.length) {
-      map.stop(); // Cancel a base-selection pan before fitting the flight.
-      map.fitBounds(L.latLngBounds(coords), { padding: [35, 35], maxZoom: 12, animate: false });
+      map.stop();
+      map.fitBounds(L.latLngBounds(coords), { padding: [40, 40], maxZoom: stop ? 12 : 10, animate: false });
     }
-  }, [data, ready, selectedFlight]);
+  }, [data, ready, stop, fitRevision]);
 
   useEffect(() => {
     const L = leaflet.current, map = mapRef.current;
     if (!L || !map || !ready || !data || !showBases) return;
     const layer = L.layerGroup().addTo(map);
-    for (const site of data.sites) {
-      if (site.latitude_deg == null || site.longitude_deg == null || (matchesOnly && !["SITE_MATCH", "COMPANY_MATCH"].includes(site.match))) continue;
-      if (search && !`${site.company_name} ${site.name} ${site.airport_ident || ""}`.toLowerCase().includes(search.toLowerCase())) continue;
+    for (const site of visibleSites) {
+      if (site.latitude_deg == null || site.longitude_deg == null) continue;
       const label = document.createElement("span"); label.textContent = `${site.company_name} · ${site.name} · ${labels[site.match]}`;
-      L.circleMarker([site.latitude_deg, site.longitude_deg], { radius: site.match === "SITE_MATCH" ? 9 : 7, color: colors[site.match], fillColor: colors[site.match], fillOpacity: 0.8, weight: 2 })
+      L.circleMarker([site.latitude_deg, site.longitude_deg], { radius: site.match === "SITE_MATCH" ? 8 : 6, color: colors[site.match], fillColor: colors[site.match], fillOpacity: 0.8, weight: 2 })
         .bindTooltip(label).on("click", () => setSelectedSite(site)).addTo(layer);
     }
     return () => { layer.remove(); };
-  }, [data, ready, matchesOnly, showBases, search]);
+  }, [data, ready, showBases, visibleSites]);
 
-  const visibleSites = (data?.sites || []).filter(s => (!matchesOnly || ["SITE_MATCH", "COMPANY_MATCH"].includes(s.match)) && `${s.company_name} ${s.name} ${s.airport_ident || ""}`.toLowerCase().includes(search.toLowerCase()));
   return <main className="flight-map-page">
-    <header><p className="eyebrow">Maintenance Pulse · Historical evidence</p><h1>Watched aircraft & maintenance bases</h1><p>Explore observed flights and Part-145 capability records. Proximity is a lead to investigate, not proof of maintenance.</p></header>
+    <header><p className="eyebrow">Maintenance Pulse · Stop history</p><h1>Where has this aircraft been stopping?</h1><p>Existing airport visits, observed ground time and Part-145 capabilities. No flight-path recording or replay.</p></header>
     <form className="map-controls" onSubmit={e => { e.preventDefault(); load(watchId, from, to); }}>
       <label>Watched aircraft<select value={watchId} onChange={e => { setWatchId(e.target.value); load(e.target.value, from, to); }}><option value="">Select a tail</option>{watches.map(w => <option key={w.id} value={w.id}>{w.registration}</option>)}</select></label>
       <label>From (UTC)<input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label>
@@ -193,31 +172,49 @@ export function FlightMap() {
       <span>Up to 31 days · defaults to latest processed week</span>
     </form>
     {error && <p className="map-warning" role="alert">{error}</p>}
-    {!watches.length && !error && <p>Add aircraft in Maintenance Pulse to start exploring.</p>}
-    {key === "" && <p className="map-warning">Basemap not configured. Set HELIGENT_CARTO_BASEMAP_KEY on the VPS to enable CARTO tiles. Aircraft and base layers still work.</p>}
+    {!watches.length && !error && <p>Add aircraft in Maintenance Pulse to start exploring their existing stop history.</p>}
+    {key === "" && <p className="map-warning">Basemap not configured. Set HELIGENT_CARTO_BASEMAP_KEY on the VPS to enable CARTO tiles. Stop and base layers still work.</p>}
     {tileError && <p className="map-warning" role="alert">CARTO tiles could not load. Check the basemap key, its permitted domain, and network access. Overlays remain available.</p>}
     {data && <>
-      <div className="map-stats"><strong>{data.watch.registration} · {data.type_code || (data.type_codes.length ? "Conflicting types" : "Type unknown")}</strong><span>{data.processed_days.length}/{data.expected_days} dates processed</span><span>{data.flights.filter(f => f.track).length}/{data.flights.length} displayed episodes with tracks</span><span>{data.visits.length} airport visits</span><span>{data.sites.filter(s => s.match === "SITE_MATCH").length} site-specific type matches</span></div>
-      <p className="map-note">Loaded {data.from} to {data.to} UTC. Addresses: {data.addresses.join(", ") || "none observed"}. Approval matching uses records current as of {data.approval_as_of}, not historical approval at flight time.</p>
-      {data.addresses.length > 1 && <p className="map-warning">Multiple addresses recorded for this registration. Check identity before combining its history.</p>}
+      <div className="map-stats"><strong>{data.watch.registration} · {data.type_code || (data.type_codes.length ? "Conflicting types" : "Type unknown")}</strong><span>{data.processed_days.length}/{data.expected_days} dates processed</span><span>{data.stops.length} stop records · {new Set(data.stops.map(s => s.airport_ident)).size} airports</span><span>{duration(data.stops.reduce((sum, s) => sum + s.ground_time_seconds, 0))} observed ground time in displayed records</span></div>
+      <p className="map-note">Loaded {data.from} to {data.to} UTC. Addresses: {data.addresses.join(", ") || "none observed"}. Approval matching uses records current as of {data.approval_as_of}, not historical approval at visit time.</p>
+      {data.addresses.length > 1 && <p className="map-warning">Multiple addresses recorded for this registration. Histories are connected separately; check identity before combining them.</p>}
       {!data.type_code && <p className="map-warning">{data.type_codes.length ? `Conflicting recorded types: ${data.type_codes.join(", ")}.` : "No recorded aircraft type in this date range."} Type matching is disabled.</p>}
-      {data.processed_days.length < data.expected_days && <p className="map-warning">Some dates are not processed. Missing tracks or visits do not establish inactivity; processed dates also have receiver coverage gaps.</p>}
-      {data.flights.some(f => !f.track && !f.track_omitted) && <p className="map-note">Some episodes have no retained coordinates (older parser or tail not watched when processed). Dashed lines are inferred airport connections, not flown routes. Add the tail to the watchlist before reprocessing dates for tracks.</p>}
-      {(data.flights_truncated || data.visits_truncated || data.flights.some(f => f.track_omitted)) && <p className="map-warning">Display limit reached (250 episodes, 500 visits or 30,000 track points). Narrow the dates to see omitted evidence.</p>}
+      {data.processed_days.length < data.expected_days && <p className="map-warning">Some dates are not processed. Missing visits do not establish inactivity; processed dates also have receiver coverage gaps.</p>}
+      {data.stops_truncated && <p className="map-warning">Showing the latest 500 stop records, numbered chronologically within this displayed subset. Narrow the dates to inspect omitted history.</p>}
       {(data.sites_truncated || data.capabilities_truncated) && <p className="map-warning">Base/capability catalogue limit reached. Matches may be incomplete.</p>}
-      {!data.flights.length && <p className="map-warning">No flight episodes for this tail in the selected dates. Check processing coverage and try a different period.</p>}
+      {!data.stops.length && <p className="map-warning">No airport-visit records for this tail in the selected dates. Check processing coverage or try another period. This does not mean it made no stops.</p>}
     </>}
     <div className="flight-map-layout">
       <section className="map-main">
-        <div className="map-legend"><span style={{ color: "#2563eb" }}>━ Sampled observed track</span><span>┄ Inferred connection</span><span>○ Airport visit</span>{Object.entries(labels).map(([k, label]) => <span key={k} style={{ color: colors[k as Match] }}>● {label}</span>)}</div>
-        <div ref={element} className="flight-map-canvas" aria-label="Historical aircraft flights and Part-145 bases map" />
-        <div className="map-playback">
-          <label>Flight episode<select value={selectedFlight} onChange={e => { setSelectedFlight(e.target.value); setProgress(100); setPlaying(false); }}><option value="">All episodes in date range</option>{data?.flights.map(f => <option key={flightId(f)} value={flightId(f)}>{utc(f.takeoff_at)} · {route(f)} · {f.address}</option>)}</select></label>
-          {flight && <><p>{route(flight)} · {flight.confidence} confidence · {flight.quality_flags.join(", ") || "No episode quality flags"}</p>{flight.track?.truncated && <p className="map-warning">This track reached its 2,048-point retention cap; its later path is omitted.</p>}{fixes.length > 0 ? <><div className="map-scrubber"><button type="button" onClick={() => { if (progress >= 100) setProgress(0); setPlaying(!playing); }}>{playing ? "Pause" : "Play"}</button><input aria-label="Flight playback position" type="range" min="0" max="100" value={progress} onChange={e => { setProgress(Number(e.target.value)); setPlaying(false); }} /></div><p>Playback: {utc(new Date(cursorTime * 1000).toISOString())}. Last observed fix: {cursorFix ? utc(new Date(cursorFix[0] * 1000).toISOString()) : "none"}. The marker holds its last known position through gaps.</p></> : <p>No retained track available for playback{flight.track_omitted ? "; narrow the dates to load it" : "; reprocess this date if needed"}.</p>}</>}
-        </div>
+        <div className="map-legend"><span>① Stop order (UTC)</span><span>○ Larger circle = more observed ground time</span><span>┄ Sighting sequence, not a flight path</span>{Object.entries(labels).map(([k, label]) => <span key={k} style={{ color: colors[k as Match] }}>● {label}</span>)}</div>
+        <div ref={element} className="flight-map-canvas" aria-label="Historical aircraft stops and Part-145 bases map" />
+        <section className="map-stops">
+          <div className="map-stop-heading"><h2>Stop timeline (UTC)</h2><button type="button" onClick={() => { setSelectedStop(""); setSelectedSite(null); setFitRevision(n => n + 1); }}>Show all stops</button></div>
+          <p className="map-note">A record is one daily airport-visit episode, not necessarily a separate landing. Repeated days at the same airport are kept separate; no stay is inferred across missing observations. Shared markers list multiple stop numbers.</p>
+          {stop && <article className="map-stop-detail" aria-label="Selected stop evidence">
+            <h3>Stop {stop.number} · {stop.airport_ident} · {stop.airport_name}</h3>
+            <dl><dt>First evidence</dt><dd>{utc(stop.first_evidence_at)}</dd><dt>Last evidence</dt><dd>{utc(stop.last_evidence_at)}</dd>
+              <dt>Observed ground time</dt><dd>{duration(stop.ground_time_seconds)} · {stop.ground_observation_count} ground observations</dd>
+              <dt>Span between sightings</dt><dd>{duration(stop.evidence_span_seconds)} — not confirmed continuous time on site</dd>
+              <dt>Arrival estimate</dt><dd>{stop.arrived_at ? utc(stop.arrived_at) : "Unknown / not bounded"} · {stop.arrival_evidence || "No arrival evidence"}</dd>
+              <dt>Departure estimate</dt><dd>{stop.departed_at ? utc(stop.departed_at) : "Unknown / not bounded"} · {stop.departure_evidence || "No departure evidence"}</dd>
+              <dt>Confidence / identity</dt><dd>{stop.confidence} · {stop.address}</dd>
+              <dt>Location evidence</dt><dd>{stop.proximity_observation_count} proximity observations · closest {Number(stop.closest_distance_nm).toFixed(2)} NM from airport reference</dd></dl>
+            {(stop.open_at_start || stop.open_at_end) && <p className="map-warning">This visit is open at {stop.open_at_start && stop.open_at_end ? "both UTC window boundaries" : stop.open_at_start ? "the start of its UTC window" : "the end of its UTC window"}. Arrival/departure may be outside the observed period.</p>}
+            {stop.ground_observation_count === 0 && <p className="map-warning">Proximity-only evidence: no ground observations. A stop or landing is not confirmed.</p>}
+            <p className="map-note">Quality flags: {stop.quality_flags.join(", ") || "none recorded"}. Airport association does not prove entry into an individual base or maintenance.</p>
+          </article>}
+          <div className="map-stop-list">{data?.stops.map(s => <button type="button" key={stopId(s)} aria-pressed={stopId(s) === selectedStop} onClick={() => { setSelectedStop(stopId(s)); setSelectedSite(null); }}>
+            <strong>{s.number}. {s.airport_ident} · {s.airport_name}</strong><span>{utc(s.first_evidence_at)} → {utc(s.last_evidence_at)}</span>
+            <small>{duration(s.ground_time_seconds)} observed ground · {duration(s.evidence_span_seconds)} evidence span · {s.confidence}{s.ground_observation_count === 0 ? " · proximity only" : ""}</small>
+          </button>)}</div>
+        </section>
       </section>
       <aside className="map-sidebar">
         <h2>Part-145 bases</h2><label><input type="checkbox" checked={showBases} onChange={e => setShowBases(e.target.checked)} /> Show bases on map</label><label><input type="checkbox" checked={matchesOnly} onChange={e => setMatchesOnly(e.target.checked)} /> Type matches only (site or company)</label>
+        <label><input type="checkbox" checked={atStopOnly} disabled={!stop} onChange={e => setAtStopOnly(e.target.checked)} /> At selected stop’s airport only</label>
+        {stop && <p className="map-note">Selected stop {stop.number}: {stop.airport_ident}. Airport-linked bases are leads, not confirmed facility visits.</p>}
         <input aria-label="Find a base" placeholder="Company, base or airport…" value={search} onChange={e => setSearch(e.target.value)} />
         <p className="map-note">{visibleSites.length} bases · {visibleSites.filter(s => s.latitude_deg == null || s.longitude_deg == null).length} without coordinates. Shared airport markers can overlap; select an individual base below.</p>
         <div className="map-base-list">{visibleSites.slice(0, 100).map(s => <button type="button" key={s.id} onClick={() => { setSelectedSite(s); if (s.latitude_deg != null && s.longitude_deg != null) mapRef.current?.setView([s.latitude_deg, s.longitude_deg], 13); }}><strong>{s.company_name}</strong><span>{s.name} · {s.airport_ident || "Airport not linked"}</span><small style={{ color: colors[s.match] }}>{labels[s.match]}</small></button>)}{visibleSites.length > 100 && <p>Showing first 100 in this list. Search to narrow it; all located results remain on the map.</p>}</div>
@@ -228,6 +225,6 @@ export function FlightMap() {
         </section>}
       </aside>
     </div>
-    <p className="map-note">Tracks retain sampled airborne observations, not full-resolution raw traces or ground taxi paths. Lines between samples are visual connections; gaps are not interpolated. Base records may be incomplete or stale. No map action starts ingestion or changes reviews.</p>
+    <p className="map-note">This map reads existing airport-visit summaries. No intermediate coordinates are stored, no stops are inferred across reception gaps, and no map action starts ingestion or changes reviews. Base records may be incomplete or stale.</p>
   </main>;
 }

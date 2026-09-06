@@ -2,7 +2,7 @@
 .flight-map-page h1 { font-size: clamp(24px, 3vw, 36px); margin: 8px 0; }
 .flight-map-page p { line-height: 1.5; }
 .map-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; margin: 24px 0; }
-.map-controls label, .map-playback label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+.map-controls label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
 .flight-map-page select, .flight-map-page input:not([type=checkbox]):not([type=range]) { border: 1px solid #cbd5e1; border-radius: 7px; padding: 10px; background: white; color: #122435; min-width: 0; }
 .map-controls > span, .map-note { color: #526474; font-size: 12px; }
 .map-warning { padding: 10px 14px; background: #fff5df; border: 1px solid #e8c783; border-radius: 8px; font-size: 13px; color: #784d10; }
@@ -22,11 +22,20 @@
 .map-base-detail { border-top: 2px solid #d8dfdd; margin-top: 18px; font-size: 13px; overflow-wrap: anywhere; }
 .map-base-detail article { padding: 12px; background: #f3f6f5; border-radius: 8px; margin: 10px 0; }
 .map-base-detail article p { margin-bottom: 0; }
-.map-playback { padding: 16px; font-size: 13px; }
-.map-playback select { width: 100%; }
-.map-scrubber { display: flex; gap: 12px; align-items: center; }
-.map-scrubber input { flex: 1; min-width: 0; }
-.map-scrubber button { border: 1px solid #cbd5e1; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+.map-stops { padding: 16px; font-size: 13px; }
+.map-stop-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.map-stop-heading h2 { font-size: 20px; }
+.map-stop-heading button { border: 1px solid #cbd5e1; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+.map-stop-list { max-height: 320px; overflow-y: auto; }
+.map-stop-list button { display: block; text-align: left; width: 100%; padding: 12px; margin-bottom: 6px; border: 1px solid #d8dfdd; border-radius: 6px; background: white; color: #122435; cursor: pointer; }
+.map-stop-list button[aria-pressed=true] { background: #eff6ff; border-color: #2563eb; }
+.map-stop-list button span, .map-stop-list button small { display: block; margin-top: 5px; }
+.map-stop-detail { border: 1px solid #93c5fd; background: #f8fafc; border-radius: 8px; padding: 14px; margin: 12px 0; }
+.map-stop-detail dl { display: grid; grid-template-columns: minmax(100px, 1fr) 2fr; gap: 8px; }
+.map-stop-detail dd { margin: 0; overflow-wrap: anywhere; }
+.map-stop-detail dt { font-weight: 600; }
+.map-stop-number.leaflet-tooltip { background: none; border: 0; box-shadow: none; color: #0f172a; font-weight: 800; font-size: 11px; }
+.map-stop-number.leaflet-tooltip::before { display: none; }
 .flight-map-canvas .leaflet-popup-content p { font-size: 12px; }
 @media (max-width: 1000px) { .flight-map-layout { grid-template-columns: 1fr; } .map-sidebar { max-height: none; } .flight-map-canvas { height: 460px; } }
 @media (max-width: 600px) { .flight-map-page { padding: 12px; } .map-controls label { flex: 1 1 40%; } .flight-map-canvas { height: 380px; } }

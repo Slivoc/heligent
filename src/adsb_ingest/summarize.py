@@ -12,7 +12,7 @@ from .archive import TracePayload
 
 
 ADDRESS_RE = re.compile(r"^(?:~)?[0-9a-f]{6}$")
-DERIVATION_VERSION = "flight-visits-v2-tracks"
+DERIVATION_VERSION = "flight-visits-v1"
 
 
 @dataclass(frozen=True)
@@ -160,7 +160,6 @@ class FlightSegmentSummary:
     ends_after_window: bool
     confidence: str
     quality_flags: tuple[str, ...]
-    track: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -200,57 +199,6 @@ class _AirportContact:
     airport_ident: str
     distance_nm: float
     evidence: str
-
-
-def compact_track(points: list[_Point], config: ActivityConfig) -> dict[str, Any]:
-    """Keep observed coordinates, not invented airport connectors or gap interpolation.
-
-    At most one sample per 15s plus each continuous run's endpoints. Break on
-    missing fixes, reception gaps, implausible jumps and the antimeridian.
-    Cap output per flight; an explicit truncation flag prevents silent coverage claims.
-    """
-    lines: list[list[list[float | int | None]]] = []
-    line: list[list[float | int | None]] = []
-    previous = None
-    count = 0
-    truncated = False
-
-    def sample(p):
-        return [round(p.observed_seconds, 3), round(p.latitude, 5),
-                round(p.longitude, 5), round(p.altitude_ft) if p.altitude_ft is not None else None]
-
-    def finish():
-        nonlocal line, count, truncated
-        if line:
-            if previous is not None and line[-1][0] != round(previous.observed_seconds, 3):
-                line.append(sample(previous))
-            available = max(0, 2048 - count)
-            if len(line) > available:
-                truncated = True
-            if available:
-                lines.append(line[:available])
-                count += len(lines[-1])
-        line = []
-
-    for point in points:
-        if point.latitude is None or point.longitude is None:
-            finish()
-            previous = None
-            continue
-        if previous is not None:
-            gap = point.observed_seconds - previous.observed_seconds
-            jump = haversine_nm(previous.latitude, previous.longitude, point.latitude, point.longitude)
-            if (gap <= 0 or gap > config.max_continuous_gap_seconds
-                    or abs(point.longitude - previous.longitude) > 180
-                    or jump * 3600 / max(gap, 0.001) > config.max_plausible_speed_knots):
-                finish()
-        if not line or point.observed_seconds - line[-1][0] >= 15:
-            line.append(sample(point))
-        previous = point
-    finish()
-    return {'version': 'observed-track-v1', 'segments': lines,
-            'input_count': len(points), 'retained_count': count, 'truncated': truncated,
-            'sample_interval_seconds': 15, 'gap_seconds': config.max_continuous_gap_seconds}
 
 
 @dataclass
@@ -654,7 +602,6 @@ def _build_flight_segments(
     airport_visits: tuple[AirportVisitSummary, ...],
     contact_map: dict[int, tuple[int, _AirportContact]],
     config: ActivityConfig,
-    retain_track: bool = True,
 ) -> tuple[FlightSegmentSummary, ...]:
     runs: list[list[int]] = []
     current_run: list[int] = []
@@ -867,7 +814,6 @@ def _build_flight_segments(
                 ends_after_window=ends_after_window,
                 confidence=confidence,
                 quality_flags=tuple(quality_flags),
-                track=compact_track([points[index] for index in run], config) if retain_track else None,
             )
         )
     return tuple(segments)
@@ -945,7 +891,6 @@ def summarize_trace(
     airport_index: AirportIndex,
     *,
     config: ActivityConfig | None = None,
-    retain_track: bool = True,
 ) -> TraceSummary:
     config = config or ActivityConfig()
     payload = trace_payload.payload
@@ -1072,7 +1017,6 @@ def summarize_trace(
         airport_visits=visits,
         contact_map=contact_map,
         config=config,
-        retain_track=retain_track,
     )
     presences = _aggregate_airport_presences(
         visits,

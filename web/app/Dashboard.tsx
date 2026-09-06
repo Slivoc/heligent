@@ -359,7 +359,7 @@ export function Dashboard() {
           <button type="button" className={surface === "locations" ? "nav-active" : ""} onClick={() => setSurface("locations")}>Customers</button>
           <button type="button" className={surface === "operators" ? "nav-active" : ""} onClick={() => setSurface("operators")}>Operators</button>
           <button type="button" className={surface === "pulse" ? "nav-active" : ""} onClick={() => setSurface("pulse")}>Maintenance Pulse</button>
-          <button type="button" className={surface === "tracks" ? "nav-active" : ""} onClick={() => setSurface("tracks")}>Flight map</button>
+          <button type="button" className={surface === "tracks" ? "nav-active" : ""} onClick={() => setSurface("tracks")}>Stops map</button>
           <button type="button" className={surface === "data" ? "nav-active" : ""} onClick={() => setSurface("data")}>Data control</button>
         </nav>
         <div className="system-state"><span className={`state-light ${current ? "state-working" : ""}`} />{current ? "Pipeline active" : "Pipeline ready"}</div>

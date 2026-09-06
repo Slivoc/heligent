@@ -47,15 +47,6 @@ def map_data(store, watch_id, start=None, end=None):
         codes = sorted({d['type_code'].strip().upper() for d in days if d['type_code']})
         # An inconsistent type is never silently resolved for capability highlighting.
         type_code = codes[0] if len(codes) == 1 else None
-        flights = c.execute('''SELECT f.*, d.type_code,
-                o.latitude_deg AS origin_lat, o.longitude_deg AS origin_lon,
-                dest.latitude_deg AS destination_lat, dest.longitude_deg AS destination_lon
-            FROM aircraft_day d JOIN aircraft_flight_segment f
-              ON f.dataset_day_id=d.dataset_day_id AND f.address=d.address
-            LEFT JOIN airport o ON o.ident=f.origin_airport_ident
-            LEFT JOIN airport dest ON dest.ident=f.destination_airport_ident
-            WHERE replace(upper(d.registration),'-','')=%s AND d.utc_date BETWEEN %s AND %s
-            ORDER BY f.takeoff_at DESC, f.address, f.segment_sequence LIMIT 251''', (tail,start,end)).fetchall()
         visits = c.execute('''SELECT v.*, a.name AS airport_name,
                 a.latitude_deg, a.longitude_deg
             FROM aircraft_day d JOIN aircraft_airport_visit v
@@ -112,21 +103,17 @@ def map_data(store, watch_id, start=None, end=None):
         statuses = {cap['match'] for cap in site['capabilities']}
         site['match'] = next((s for s in ('SITE_MATCH','COMPANY_MATCH','APPROVAL_NOT_CURRENT')
                               if s in statuses), 'NO_RECORDED_MATCH')
-    # Bound wire size independently of the number of episodes. Never claim a
-    # budget-omitted track is a legacy record; the user can narrow the date range.
-    track_points = 0
-    for flight in flights[:250]:
-        count = (flight.get('track') or {}).get('retained_count', 0)
-        flight['track_omitted'] = track_points + count > 30000
-        if flight['track_omitted']:
-            flight['track'] = None
-        else:
-            track_points += count
+    # Keep daily visit episodes separate: overnight silence is not proof of a stay.
+    stops = sorted(visits[:500], key=lambda v: (v['first_evidence_at'], v['address'],
+                                               v['dataset_day_id'], v['visit_sequence']))
+    for number, stop in enumerate(stops, 1):
+        stop['number'] = number
+        stop['evidence_span_seconds'] = max(0, int(
+            (stop['last_evidence_at'] - stop['first_evidence_at']).total_seconds()))
     return {'watch':watch,'from':start,'to':end,'latest_processed':latest,
             'type_code':type_code,'type_codes':codes,'aircraft_days':days,
             'addresses':sorted({d['address'] for d in days}),
             'processed_days':processed,'expected_days':(end-start).days+1,
-            'flights':flights[:250],'flights_truncated':len(flights)>250,
-            'visits':visits[:500],'visits_truncated':len(visits)>500,
+            'stops':stops,'stops_truncated':len(visits)>500,
             'sites':sites[:5000],'sites_truncated':len(sites)>5000,
             'capabilities_truncated':len(caps)>20000,'approval_as_of':today}

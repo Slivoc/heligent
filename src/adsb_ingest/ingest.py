@@ -158,7 +158,6 @@ def run_ingestion(args: argparse.Namespace) -> dict[str, object]:
         calculate_distance=args.calculate_distance,
     )
     invalid_trace_names: list[str] = []
-    watched_tails: set[str] = set()
 
     def quarantine_invalid_trace(member_name: str, error: ValueError) -> None:
         invalid_trace_names.append(member_name)
@@ -180,18 +179,9 @@ def run_ingestion(args: argparse.Namespace) -> dict[str, object]:
                 args.utc_date,
                 airport_index,
                 config=config,
-                retain_track=str(trace.payload.get('r') or '').strip().upper().replace('-', '').replace(' ', '') in watched_tails,
             )
 
     try:
-        # Snapshot once per day: no per-aircraft queries or changes mid-file.
-        with store.connect() as connection:
-            watched_tails.update(row[0] for row in connection.execute('''
-                SELECT w.registration FROM maintenance_watch w
-                JOIN maintenance_watchlist l ON l.id=w.watchlist_id
-                WHERE w.active AND l.scope_key='internal'
-            '''))
-        LOGGER.info('Retaining sampled paths for %d active watched registrations', len(watched_tails))
         metrics = store.load_summaries(
             dataset_day_id,
             process_job_id,
@@ -199,8 +189,7 @@ def run_ingestion(args: argparse.Namespace) -> dict[str, object]:
             batch_size=args.batch_size,
             heartbeat_every=args.heartbeat_every,
             derivation_version=DERIVATION_VERSION,
-            derivation_config={**asdict(config), 'track_scope': 'ACTIVE_WATCHLIST',
-                               'track_registrations': sorted(watched_tails)},
+            derivation_config=asdict(config),
         )
     except Exception as exc:
         store.fail_job(

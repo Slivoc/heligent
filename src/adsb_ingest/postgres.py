@@ -110,7 +110,6 @@ FLIGHT_SEGMENT_STAGE_COLUMNS = (
     "ends_after_window",
     "confidence",
     "quality_flags",
-    "track",
 )
 
 AIRPORT_VISIT_STAGE_COLUMNS = (
@@ -583,7 +582,6 @@ class PostgresStore:
         airport_day_rows: list[tuple[object, ...]] = []
         flight_segment_rows: list[tuple[object, ...]] = []
         airport_visit_rows: list[tuple[object, ...]] = []
-        buffered_track_points = 0
 
         with self.connect() as connection:
             before_bytes = self._relation_bytes(connection)
@@ -615,8 +613,6 @@ class PostgresStore:
             )
 
             def flush() -> None:
-                nonlocal buffered_track_points
-                buffered_track_points = 0
                 if aircraft_rows:
                     _copy_rows(connection, "aircraft_stage", AIRCRAFT_STAGE_COLUMNS, aircraft_rows)
                     _copy_rows(
@@ -656,7 +652,6 @@ class PostgresStore:
                 summary = trace_summary.aircraft_day
                 presences = trace_summary.airport_presences
                 segments = trace_summary.flight_segments
-                buffered_track_points += sum((s.track or {}).get('retained_count', 0) for s in segments)
                 visits = trace_summary.airport_visits
                 aircraft_count += 1
                 observation_count += summary.observation_count
@@ -762,7 +757,6 @@ class PostgresStore:
                         item.ends_after_window,
                         item.confidence,
                         list(item.quality_flags),
-                        Jsonb(item.track) if item.track is not None else None,
                     )
                     for item in segments
                 )
@@ -791,7 +785,7 @@ class PostgresStore:
                     )
                     for item in visits
                 )
-                if len(aircraft_rows) >= batch_size or buffered_track_points >= 50000:
+                if len(aircraft_rows) >= batch_size:
                     flush()
                 if aircraft_count % heartbeat_every == 0:
                     self.heartbeat(
