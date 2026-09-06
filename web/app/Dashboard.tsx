@@ -7,6 +7,7 @@ import { CustomerLocations } from "./CustomerLocations";
 import { OperatorFleet } from "./OperatorFleet";
 import { EuropeHelicopters } from "./EuropeHelicopters";
 import { MaintenancePulse } from "./MaintenancePulse";
+import { FlightMap } from "./FlightMap";
 
 type DatasetStatus =
   | "NOT_DOWNLOADED"
@@ -211,7 +212,7 @@ function monthShift(month: string, delta: number): string {
 
 export function Dashboard() {
   const [yesterday] = useState(isoYesterday);
-  const [surface, setSurface] = useState<"ask" | "analytics" | "helicopters" | "locations" | "operators" | "data" | "pulse">(
+  const [surface, setSurface] = useState<"ask" | "analytics" | "helicopters" | "locations" | "operators" | "data" | "pulse" | "tracks">(
     () => typeof window !== "undefined"
       ? window.location.hash === "#customers"
         ? "locations"
@@ -219,6 +220,8 @@ export function Dashboard() {
           ? "helicopters"
         : window.location.hash === "#operators"
           ? "operators"
+        : window.location.hash === "#tracks"
+          ? "tracks"
         : window.location.hash === "#pulse"
           ? "pulse"
           : "ask"
@@ -356,6 +359,7 @@ export function Dashboard() {
           <button type="button" className={surface === "locations" ? "nav-active" : ""} onClick={() => setSurface("locations")}>Customers</button>
           <button type="button" className={surface === "operators" ? "nav-active" : ""} onClick={() => setSurface("operators")}>Operators</button>
           <button type="button" className={surface === "pulse" ? "nav-active" : ""} onClick={() => setSurface("pulse")}>Maintenance Pulse</button>
+          <button type="button" className={surface === "tracks" ? "nav-active" : ""} onClick={() => setSurface("tracks")}>Flight map</button>
           <button type="button" className={surface === "data" ? "nav-active" : ""} onClick={() => setSurface("data")}>Data control</button>
         </nav>
         <div className="system-state"><span className={`state-light ${current ? "state-working" : ""}`} />{current ? "Pipeline active" : "Pipeline ready"}</div>
@@ -367,6 +371,7 @@ export function Dashboard() {
       {surface === "locations" && <CustomerLocations />}
       {surface === "operators" && <OperatorFleet />}
       {surface === "pulse" && <MaintenancePulse />}
+      {surface === "tracks" && <FlightMap />}
       <div className="management-surface" hidden={surface !== "data"}>
       <section className="hero">
         <div className="hero-copy">

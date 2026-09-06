@@ -239,6 +239,7 @@ def create_app(
         analytics.apply_phase12_migration()
         analytics.apply_phase15_migration()
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase16.sql')
+        admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase17.sql')
     query_service = natural_language or SemanticNaturalLanguageAnalytics(analytics)
     worker = SequentialIngestionWorker(
         admin_store,
@@ -321,7 +322,7 @@ def create_app(
         if public_demo_enabled or selected_auth_mode == "NGROK":
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; base-uri 'none'; object-src 'none'; "
-                "frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; "
+                "frame-ancestors 'none'; form-action 'self'; img-src 'self' data: https://basemaps.cartocdn.com; "
                 "script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'"
             )
             if request.is_secure:
@@ -643,6 +644,17 @@ def create_app(
     @app.get('/api/maintenance/watches/<int:watch_id>')
     def maintenance_detail(watch_id):
         return jsonify(_json_ready(MaintenanceStore(admin_store).detail(watch_id)))
+
+    @app.get('/api/maintenance/map-config')
+    def maintenance_map_config():
+        # CARTO basemap keys are browser-visible tile credentials, never server API tokens.
+        return jsonify({'carto_key': os.getenv('HELIGENT_CARTO_BASEMAP_KEY', '')})
+
+    @app.get('/api/maintenance/watches/<int:watch_id>/map')
+    def maintenance_map(watch_id):
+        from .maintenance_map import map_data
+        return jsonify(_json_ready(map_data(admin_store, watch_id,
+            request.args.get('from'), request.args.get('to'))))
 
     @app.post('/api/maintenance/watches/<int:watch_id>/reviews')
     def maintenance_review(watch_id):

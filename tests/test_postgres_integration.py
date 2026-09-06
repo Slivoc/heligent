@@ -20,6 +20,8 @@ from adsb_ingest.archive import TracePayload
 from adsb_ingest.summarize import summarize_trace
 from adsb_ingest.work_queue import AdminStore, SequentialIngestionWorker
 from adsb_ingest.maintenance import MaintenanceStore
+from adsb_ingest.maintenance_map import map_data
+from adsb_ingest.summarize import DERIVATION_VERSION
 from test_phase2 import trace_row
 
 
@@ -44,6 +46,8 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase15.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase14.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase16.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase17.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase17.sql")
         # Application startup replays every idempotent migration. Phase 9 adds
         # company columns, so Phase 8 views must remain stable on the next run.
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase8.sql")
@@ -123,6 +127,42 @@ class PostgresIntegrationTests(unittest.TestCase):
         trace = TracePayload("trace.json", "abcdef", 100, 500, payload)
         summary = summarize_trace(trace, discovery.utc_date, AirportIndex([airport]))
         return catalog, discovery, summary
+
+    def test_map_tracks_legacy_fallback_and_capability_scope(self):
+        catalog, discovery, summary = self.fixture()
+        self.store.upsert_airports(catalog)
+        dataset_id = self.store.upsert_dataset(discovery)
+        job = self.store.start_job(dataset_id, 'PROCESS')
+        self.store.set_processing(dataset_id)
+        self.store.load_summaries(dataset_id, job, iter([summary]))
+        watch = MaintenanceStore(self.store).add({'registration':'G-TEST'},'map@example.com')
+        with self.store.connect() as c:
+            company = c.execute("INSERT INTO company(company_key,name,is_mro) VALUES ('map-test','Map MRO',true) RETURNING id").fetchone()[0]
+            first = c.execute("INSERT INTO company_site(company_id,site_key,name,airport_ident) VALUES (%s,'base-a','Base A','TEST') RETURNING id",(company,)).fetchone()[0]
+            second = c.execute("INSERT INTO company_site(company_id,site_key,name) VALUES (%s,'base-b','Base B') RETURNING id",(company,)).fetchone()[0]
+            approval = c.execute("INSERT INTO regulatory_approval(company_id,authority_code,approval_type,approval_number) VALUES (%s,'TEST','PART_145','MAP.145') RETURNING id",(company,)).fetchone()[0]
+            c.execute("INSERT INTO company_data_source(code,name) VALUES ('MAP_TEST','Map test')")
+            c.execute('''INSERT INTO approval_capability(regulatory_approval_id,company_site_id,source_code,capability_key,capability_kind,aircraft_type_code)
+                VALUES (%s,%s,'MAP_TEST','site','AIRCRAFT','H145'),(%s,NULL,'MAP_TEST','company','AIRCRAFT','H145')''',(approval,first,approval))
+        data = map_data(self.store,watch['id'],'2026-08-20','2026-08-20')
+        self.assertEqual(data['type_code'],'H145')
+        self.assertEqual(data['flights'][0]['track']['version'],'observed-track-v1')
+        self.assertGreater(data['flights'][0]['track']['retained_count'],0)
+        self.assertEqual(data['visits'][0]['airport_ident'],'TEST')
+        a = next(s for s in data['sites'] if s['id']==first)
+        b = next(s for s in data['sites'] if s['id']==second)
+        self.assertEqual(a['match'],'SITE_MATCH')
+        self.assertEqual(a['location_precision'],'AIRPORT_CENTROID')
+        self.assertEqual(b['match'],'COMPANY_MATCH')
+        self.assertEqual(b['location_precision'],'UNLOCATED')
+        self.assertEqual(len(b['capabilities']),1) # no other site's capability leaks
+        with self.store.connect() as c:
+            c.execute('UPDATE aircraft_flight_segment SET track=NULL WHERE dataset_day_id=%s',(dataset_id,))
+        self.assertIsNone(map_data(self.store,watch['id'],'2026-08-20','2026-08-20')['flights'][0]['track'])
+        empty = MaintenanceStore(self.store).add({'registration':'G-EMPTY'},'map@example.com')
+        self.assertEqual(map_data(self.store,empty['id'],'2026-08-20','2026-08-20')['flights'],[])
+        with self.assertRaises(ValueError):
+            map_data(self.store,999999,'2026-08-20','2026-08-20')
 
     def test_company_import_is_idempotent_and_preserves_roles_and_scope(self) -> None:
         assert TEST_DATABASE_URL is not None
@@ -352,7 +392,7 @@ class PostgresIntegrationTests(unittest.TestCase):
                 (dataset_id,),
             ).fetchone()
         self.assertIsNotNone(initial_derived_bytes)
-        self.assertEqual(episode_metadata[:3], (1, 1, "flight-visits-v1"))
+        self.assertEqual(episode_metadata[:3], (1, 1, DERIVATION_VERSION))
         self.assertEqual(episode_metadata[3], {})
         already_processed = self.store.enqueue_date(discovery.utc_date)
         self.assertEqual(already_processed["outcome"], "SKIPPED_ALREADY_PROCESSED")
@@ -585,7 +625,7 @@ class PostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(daily[0]["airports"][0]["ident"], "TEST")
         self.assertEqual(daily[0]["flight_segment_count"], 1)
         self.assertEqual(daily[0]["airport_visit_count"], 1)
-        self.assertEqual(daily[0]["derivation_version"], "flight-visits-v1")
+        self.assertEqual(daily[0]["derivation_version"], DERIVATION_VERSION)
         self.assertGreaterEqual(daily[0]["elapsed_flight_hours"], 0)
         self.assertIsNotNone(daily[0]["data_revision"])
 

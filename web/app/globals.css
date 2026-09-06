@@ -58,8 +58,8 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .brand-mark::first-letter { transform: rotate(-45deg); }
 .brand strong { display: block; font: 700 18px/1.1 var(--mono); letter-spacing: .16em; }
 .brand small { display: block; margin-top: 4px; color: #8da9b5; font: 600 9px/1 var(--mono); letter-spacing: .12em; }
-.topbar nav { display: flex; height: 100%; align-items: center; gap: 28px; }
-.topbar nav button { height: 100%; padding: 0; display: flex; align-items: center; position: relative; border: 0; color: #a8bdc7; background: transparent; cursor: pointer; font-size: 13px; font-weight: 650; letter-spacing: .02em; }
+.topbar nav { display: flex; height: 100%; align-items: center; gap: 28px; min-width: 0; overflow-x: auto; }
+.topbar nav button { height: 100%; padding: 0; display: flex; flex-shrink: 0; white-space: nowrap; align-items: center; position: relative; border: 0; color: #a8bdc7; background: transparent; cursor: pointer; font-size: 13px; font-weight: 650; letter-spacing: .02em; }
 .topbar nav button:hover { color: white; }
 .topbar nav .nav-active { color: white; }
 .topbar nav .nav-active::after { content: ""; position: absolute; height: 3px; left: 0; right: 0; bottom: 0; background: var(--aqua); }
@@ -705,7 +705,7 @@ footer p { margin: 0; }
   .brand strong { font-size: 12px; letter-spacing: .11em; }
   .brand small { display: none; }
   .topbar nav { gap: 9px; }
-  .topbar nav button { font-size: 8px; }
+  .topbar nav button { font-size: 12px; }
   .ask-surface { min-height: calc(100vh - 66px); padding: 46px 14px 58px; }
   .ask-intro h1 { font-size: 51px; }
   .ask-intro > p:not(.ask-eyebrow) { font-size: 14px; }
