@@ -8,6 +8,7 @@ import { OperatorFleet } from "./OperatorFleet";
 import { EuropeHelicopters } from "./EuropeHelicopters";
 import { MaintenancePulse } from "./MaintenancePulse";
 import { FlightMap } from "./FlightMap";
+import { Tools } from "./Tools";
 import { CapabilityMappings } from "./CapabilityMappings";
 
 type DatasetStatus =
@@ -214,7 +215,7 @@ function monthShift(month: string, delta: number): string {
 export function Dashboard() {
   const [yesterday] = useState(isoYesterday);
   const [mappingCapability, setMappingCapability] = useState<number | null>(null);
-  const [surface, setSurface] = useState<"ask" | "analytics" | "helicopters" | "locations" | "operators" | "data" | "pulse" | "tracks" | "mappings">(
+  const [surface, setSurface] = useState<"ask" | "analytics" | "helicopters" | "locations" | "operators" | "data" | "pulse" | "tracks" | "mappings" | "tools">(
     () => typeof window !== "undefined"
       ? window.location.hash === "#customers"
         ? "locations"
@@ -222,6 +223,8 @@ export function Dashboard() {
           ? "helicopters"
         : window.location.hash === "#operators"
           ? "operators"
+        : ["#tools", "#tools/lba"].includes(window.location.hash)
+          ? "tools"
         : window.location.hash === "#capability-mappings"
           ? "mappings"
         : window.location.hash === "#tracks"
@@ -364,7 +367,7 @@ export function Dashboard() {
           <button type="button" className={surface === "operators" ? "nav-active" : ""} onClick={() => setSurface("operators")}>Operators</button>
           <button type="button" className={surface === "pulse" ? "nav-active" : ""} onClick={() => setSurface("pulse")}>Maintenance Pulse</button>
           <button type="button" className={surface === "tracks" ? "nav-active" : ""} onClick={() => setSurface("tracks")}>Stops map</button>
-          <button type="button" className={surface === "mappings" ? "nav-active" : ""} onClick={() => { setMappingCapability(null); setSurface("mappings"); }}>Capability mappings</button>
+          <button type="button" className={["tools","mappings"].includes(surface) ? "nav-active" : ""} onClick={() => setSurface("tools")}>Tools</button>
           <button type="button" className={surface === "data" ? "nav-active" : ""} onClick={() => setSurface("data")}>Data control</button>
         </nav>
         <div className="system-state"><span className={`state-light ${current ? "state-working" : ""}`} />{current ? "Pipeline active" : "Pipeline ready"}</div>
@@ -377,6 +380,7 @@ export function Dashboard() {
       {surface === "operators" && <OperatorFleet />}
       {surface === "pulse" && <MaintenancePulse />}
       {surface === "tracks" && <FlightMap onReviewCapability={id => { setMappingCapability(id); setSurface("mappings"); }} />}
+      {surface === "tools" && <Tools initialLba={typeof window !== "undefined" && window.location.hash === "#tools/lba"} onMappings={() => {setMappingCapability(null); setSurface("mappings");}} />}
       {surface === "mappings" && <CapabilityMappings key={mappingCapability ?? "search"} initialCapabilityId={mappingCapability} />}
       <div className="management-surface" hidden={surface !== "data"}>
       <section className="hero">

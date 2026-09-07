@@ -46,6 +46,7 @@ PUBLIC_DEMO_ENDPOINTS = frozenset(
 )
 MUTATION_MINIMUM_ROLE = {
     "capability_mapping_save": "ANALYST",
+    "lba_preview": "ANALYST",
     "maintenance_add": "ANALYST",
     "maintenance_review": "ANALYST",
     "maintenance_archive": "ANALYST",
@@ -638,6 +639,15 @@ def create_app(
     @app.get('/api/maintenance/watches')
     def maintenance_watches():
         return jsonify(_json_ready(MaintenanceStore(admin_store).watches()))
+
+    @app.post('/api/tools/lba/preview')
+    def lba_preview():
+        require_access_role('ANALYST')
+        from .lba import fetch_preview
+        payload = request.get_json() or {}
+        if not isinstance(payload, dict):
+            raise ValueError('Expected a JSON object')
+        return jsonify(fetch_preview(payload.get('query')))
 
     @app.get('/api/capability-mappings')
     def capability_mapping_search():
