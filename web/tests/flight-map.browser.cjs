@@ -55,7 +55,7 @@ const data = { watch:{id:1,registration:'G-TEST'},from:'2026-08-20',to:'2026-08-
     assert.equal(await page.locator('.map-base-list button').count(),0);
     await page.getByRole('button',{name:'Show all stops',exact:true}).click();
     assert.equal(await page.evaluate(() => window.__fixtureMap.getBounds().contains([55.87,-4.43])),true,'All stops fit after base selection');
-    assert.equal(await page.locator('.map-stop-number').filter({hasText:'1,3'}).count(),1,'Repeated airport visits share a numbered marker');
+    await page.waitForFunction(() => [...document.querySelectorAll('.map-stop-number')].filter(e => e.textContent === '1,3').length === 1);
     await page.getByRole('button',{name:/2\. EGPK/}).click();
     await fs.mkdir('tmp/map-browser-results',{recursive:true});
     await page.evaluate(() => { document.documentElement.style.scrollBehavior='auto'; window.scrollTo(0,0); });
