@@ -2,6 +2,7 @@
 from datetime import date, timedelta
 
 from psycopg.rows import dict_row
+from .capability_mappings import evidence_snapshot
 
 
 def date_window(start, end, latest):
@@ -13,16 +14,23 @@ def date_window(start, end, latest):
 
 
 def capability_match(cap, type_code, today):
-    """Exact ICAO code only: no model-substring guesses or approval inference."""
+    """Use exact source codes or reviewed interpretations, never substring guesses."""
+    if not type_code or cap.get('capability_kind') != 'AIRCRAFT':
+        return 'NO_RECORDED_MATCH'
     exact = (bool(type_code) and cap.get('capability_kind') == 'AIRCRAFT'
              and str(cap.get('aircraft_type_code') or '').strip().upper() == type_code.strip().upper())
     valid = (cap['approval_status'] == 'VALID'
              and (not cap.get('valid_from') or cap['valid_from'] <= today)
              and (not cap.get('valid_to') or cap['valid_to'] >= today))
-    if not exact:
+    mappings = [m for m in cap.get('mappings', []) if m['active'] and m['aircraft_type_code'] == type_code.strip().upper()]
+    current = [m for m in mappings if not m['stale']]
+    reviewed = any(m['match_level'] == 'REVIEWED_TYPE' and not m['variant_scope'] for m in current)
+    if not exact and not mappings:
         return 'NO_RECORDED_MATCH'
     if not valid:
         return 'APPROVAL_NOT_CURRENT'
+    if not exact and not reviewed:
+        return 'POSSIBLE_FAMILY' if current else 'STALE_MAPPING'
     return 'SITE_MATCH' if cap.get('company_site_id') is not None else 'COMPANY_MATCH'
 
 
@@ -77,11 +85,20 @@ def map_data(store, watch_id, start=None, end=None):
                 AND regexp_replace(upper(r.approval_type),'[^A-Z0-9]','','g')
                     IN ('PART145','EASAPART145','UKPART145','EASA145','UK145')
             ORDER BY r.id''', (companies,)).fetchall()
-        caps = c.execute('''SELECT ac.regulatory_approval_id, ac.company_site_id,
-                ac.capability_kind,ac.rating_code,ac.manufacturer,ac.model,ac.aircraft_type_code,
+        caps = c.execute('''SELECT ac.id AS capability_id,ac.regulatory_approval_id, ac.company_site_id,
+                ac.capability_kind,ac.rating_class,ac.rating_code,ac.manufacturer,ac.model,ac.aircraft_type_code,
                 ac.limitation,ac.is_base_maintenance,ac.is_line_maintenance
             FROM approval_capability ac WHERE ac.active AND ac.regulatory_approval_id=ANY(%s)
             ORDER BY ac.id LIMIT 20001''', ([a['id'] for a in approvals],)).fetchall()
+        mappings = c.execute('''SELECT * FROM capability_aircraft_mapping
+            WHERE active AND aircraft_type_code=%s AND capability_id=ANY(%s)''',
+            (type_code,[cap['capability_id'] for cap in caps[:20000]])).fetchall()
+    by_capability = {m['capability_id']:m for m in mappings}
+    for cap in caps[:20000]:
+        mapping = by_capability.get(cap['capability_id'])
+        if mapping:
+            mapping['stale'] = mapping['evidence_snapshot'] != evidence_snapshot(cap)
+        cap['mappings'] = [mapping] if mapping else []
     by_company = {}
     by_approval = {}
     for approval in approvals:
@@ -101,7 +118,7 @@ def map_data(store, watch_id, start=None, end=None):
                 row['match'] = capability_match(row, type_code, today)
                 site['capabilities'].append(row)
         statuses = {cap['match'] for cap in site['capabilities']}
-        site['match'] = next((s for s in ('SITE_MATCH','COMPANY_MATCH','APPROVAL_NOT_CURRENT')
+        site['match'] = next((s for s in ('SITE_MATCH','COMPANY_MATCH','POSSIBLE_FAMILY','STALE_MAPPING','APPROVAL_NOT_CURRENT')
                               if s in statuses), 'NO_RECORDED_MATCH')
     # Keep daily visit episodes separate: overnight silence is not proof of a stay.
     stops = sorted(visits[:500], key=lambda v: (v['first_evidence_at'], v['address'],

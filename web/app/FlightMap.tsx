@@ -8,12 +8,12 @@ import "./flight-map.css";
 type Watch = { id: number; registration: string };
 type Stop = { number: number; dataset_day_id: number; address: string; visit_sequence: number; airport_ident: string; airport_name: string; latitude_deg: number; longitude_deg: number; first_evidence_at: string; last_evidence_at: string; arrived_at: string | null; departed_at: string | null; ground_time_seconds: number; evidence_span_seconds: number; confidence: string; ground_observation_count: number; proximity_observation_count: number; closest_distance_nm: number; arrival_evidence: string | null; departure_evidence: string | null; open_at_start: boolean; open_at_end: boolean; quality_flags: string[] };
 type Approval = { id: number; approval_number: string; approval_status: string; valid_from: string | null; valid_to: string | null; source_url: string | null; last_verified_at: string | null; linked_site_ids: number[] };
-type Match = "SITE_MATCH" | "COMPANY_MATCH" | "APPROVAL_NOT_CURRENT" | "NO_RECORDED_MATCH";
-type Capability = Approval & { company_site_id: number | null; capability_kind: string; aircraft_type_code: string | null; manufacturer: string | null; model: string | null; limitation: string | null; rating_code: string | null; is_base_maintenance: boolean; is_line_maintenance: boolean; match: Match };
+type Match = "SITE_MATCH" | "COMPANY_MATCH" | "POSSIBLE_FAMILY" | "STALE_MAPPING" | "APPROVAL_NOT_CURRENT" | "NO_RECORDED_MATCH";
+type Capability = Approval & { capability_id: number; mappings?: { variant_scope: string; notes: string; stale: boolean }[]; company_site_id: number | null; capability_kind: string; aircraft_type_code: string | null; manufacturer: string | null; model: string | null; limitation: string | null; rating_code: string | null; is_base_maintenance: boolean; is_line_maintenance: boolean; match: Match };
 type Site = { id: number; company_name: string; name: string; airport_ident: string | null; latitude_deg: number | null; longitude_deg: number | null; location_precision: string; capabilities: Capability[]; approvals: Approval[]; match: Match };
 type MapData = { watch: Watch; from: string; to: string; latest_processed: string | null; type_code: string | null; type_codes: string[]; addresses: string[]; processed_days: { utc_date: string; derivation_version: string | null }[]; expected_days: number; stops: Stop[]; sites: Site[]; stops_truncated: boolean; sites_truncated: boolean; capabilities_truncated: boolean; approval_as_of: string };
-const labels: Record<Match, string> = { SITE_MATCH: "Site-specific type match", COMPANY_MATCH: "Company-wide type match only", APPROVAL_NOT_CURRENT: "Type recorded; approval not current", NO_RECORDED_MATCH: "No recorded type match" };
-const colors: Record<Match, string> = { SITE_MATCH: "#059669", COMPANY_MATCH: "#d97706", APPROVAL_NOT_CURRENT: "#c24154", NO_RECORDED_MATCH: "#64748b" };
+const labels: Record<Match, string> = { POSSIBLE_FAMILY: "Possible family / restricted variant match", STALE_MAPPING: "Mapping needs re-review", SITE_MATCH: "Site-specific type match", COMPANY_MATCH: "Company-wide type match only", APPROVAL_NOT_CURRENT: "Type recorded; approval not current", NO_RECORDED_MATCH: "No recorded type match" };
+const colors: Record<Match, string> = { POSSIBLE_FAMILY: "#d97706", STALE_MAPPING: "#c24154", SITE_MATCH: "#059669", COMPANY_MATCH: "#d97706", APPROVAL_NOT_CURRENT: "#c24154", NO_RECORDED_MATCH: "#64748b" };
 const stopId = (s: Stop) => `${s.dataset_day_id}:${s.address}:${s.visit_sequence}`;
 const utc = (s: string) => new Date(s).toISOString().replace("T", " ").slice(0, 16) + " UTC";
 const duration = (seconds: number) => seconds < 60 ? `${Math.round(seconds)} sec` : seconds < 3600 ? `${Math.round(seconds / 60)} min` : `${(seconds / 3600).toFixed(1)} hr`;
@@ -27,7 +27,7 @@ async function get<T>(path: string, signal: AbortSignal): Promise<T> {
   return r.json();
 }
 
-export function FlightMap() {
+export function FlightMap({ onReviewCapability }: { onReviewCapability?: (id: number) => void }) {
   const [watches, setWatches] = useState<Watch[]>([]);
   const [watchId, setWatchId] = useState("");
   const [from, setFrom] = useState("");
@@ -99,7 +99,7 @@ export function FlightMap() {
 
   const stop = data?.stops.find(s => stopId(s) === selectedStop);
   const visibleSites = (data?.sites || []).filter(s =>
-    (!matchesOnly || ["SITE_MATCH", "COMPANY_MATCH"].includes(s.match)) &&
+    (!matchesOnly || ["SITE_MATCH", "COMPANY_MATCH", "POSSIBLE_FAMILY"].includes(s.match)) &&
     (!atStopOnly || !stop || s.airport_ident === stop.airport_ident) &&
     `${s.company_name} ${s.name} ${s.airport_ident || ""}`.toLowerCase().includes(search.toLowerCase()));
 
@@ -212,16 +212,16 @@ export function FlightMap() {
         </section>
       </section>
       <aside className="map-sidebar">
-        <h2>Part-145 bases</h2><label><input type="checkbox" checked={showBases} onChange={e => setShowBases(e.target.checked)} /> Show bases on map</label><label><input type="checkbox" checked={matchesOnly} onChange={e => setMatchesOnly(e.target.checked)} /> Type matches only (site or company)</label>
+        <h2>Part-145 bases</h2><label><input type="checkbox" checked={showBases} onChange={e => setShowBases(e.target.checked)} /> Show bases on map</label><label><input type="checkbox" checked={matchesOnly} onChange={e => setMatchesOnly(e.target.checked)} /> Type matches only (including possible families)</label>
         <label><input type="checkbox" checked={atStopOnly} disabled={!stop} onChange={e => setAtStopOnly(e.target.checked)} /> At selected stop’s airport only</label>
         {stop && <p className="map-note">Selected stop {stop.number}: {stop.airport_ident}. Airport-linked bases are leads, not confirmed facility visits.</p>}
         <input aria-label="Find a base" placeholder="Company, base or airport…" value={search} onChange={e => setSearch(e.target.value)} />
         <p className="map-note">{visibleSites.length} bases · {visibleSites.filter(s => s.latitude_deg == null || s.longitude_deg == null).length} without coordinates. Shared airport markers can overlap; select an individual base below.</p>
         <div className="map-base-list">{visibleSites.slice(0, 100).map(s => <button type="button" key={s.id} onClick={() => { setSelectedSite(s); if (s.latitude_deg != null && s.longitude_deg != null) mapRef.current?.setView([s.latitude_deg, s.longitude_deg], 13); }}><strong>{s.company_name}</strong><span>{s.name} · {s.airport_ident || "Airport not linked"}</span><small style={{ color: colors[s.match] }}>{labels[s.match]}</small></button>)}{visibleSites.length > 100 && <p>Showing first 100 in this list. Search to narrow it; all located results remain on the map.</p>}</div>
         {selectedSite && <section className="map-base-detail"><h3>{selectedSite.company_name}</h3><p>{selectedSite.name} · {selectedSite.airport_ident || "No airport link"}</p><strong style={{ color: colors[selectedSite.match] }}>{labels[selectedSite.match]}</strong><p>{selectedSite.location_precision === "AIRPORT_CENTROID" ? "Marker is the airport centre, not the hangar." : selectedSite.location_precision === "UNLOCATED" ? "No mapped coordinates." : "Imported site coordinate; accuracy has not been independently verified."}</p>
-          <p className="map-note">Exact recorded ICAO type codes only. No recorded match does not mean incapable. A type match does not confirm the required check, variant, tooling or slot availability.</p>
+          <p className="map-note">Exact recorded codes or reviewed mappings; broad families and unverified variants remain possible matches. No recorded match does not mean incapable. A type match does not confirm the required check, variant, tooling or slot availability.</p>
           <h4>Approval records</h4>{selectedSite.approvals.map(a => <p key={a.id}>{a.approval_number} · {a.approval_status}<br />{a.linked_site_ids.includes(selectedSite.id) ? "Explicit site–approval link" : "Company approval; site linkage not recorded"}<br />Validity: {a.valid_from || "unknown"} to {a.valid_to || "not recorded"}<br />Last verified: {a.last_verified_at ? utc(a.last_verified_at) : "unknown"}{safeUrl(a.source_url) && <><br /><a href={safeUrl(a.source_url)} target="_blank" rel="noreferrer">Source record ↗</a></>}</p>)}
-          <h4>Recorded capabilities ({selectedSite.capabilities.length})</h4>{!selectedSite.capabilities.length && <p>No site-specific or company-wide capability records available.</p>}{selectedSite.capabilities.map((c, i) => <article key={i}><strong>{c.aircraft_type_code || c.model || c.capability_kind}</strong><span>{[c.manufacturer, c.model, c.rating_code].filter(Boolean).join(" · ")}</span><small style={{ color: colors[c.match] }}>{labels[c.match]}</small><p>{c.company_site_id == null ? "Company-wide scope — verify this site" : "Site-specific record"} · {c.approval_number} · {c.approval_status}</p><p>{c.is_base_maintenance ? "Base maintenance" : ""}{c.is_line_maintenance ? " · Line maintenance" : ""}</p><p>{c.limitation || "No limitations supplied; consult the approval scope."}</p></article>)}
+          <h4>Recorded capabilities ({selectedSite.capabilities.length})</h4>{!selectedSite.capabilities.length && <p>No site-specific or company-wide capability records available.</p>}{selectedSite.capabilities.map((c, i) => <article key={i}><strong>{c.aircraft_type_code || c.model || c.capability_kind}</strong><span>{[c.manufacturer, c.model, c.rating_code].filter(Boolean).join(" · ")}</span><small style={{ color: colors[c.match] }}>{labels[c.match]}</small><p>{c.company_site_id == null ? "Company-wide scope — verify this site" : "Site-specific record"} · {c.approval_number} · {c.approval_status}</p><p>{c.is_base_maintenance ? "Base maintenance" : ""}{c.is_line_maintenance ? " · Line maintenance" : ""}</p><p>{c.limitation || "No limitations supplied; consult the approval scope."}</p>{c.mappings?.map((m, j) => <p key={j}>{m.stale ? "Source changed; re-review required. " : ""}{m.variant_scope && `Restricted variants: ${m.variant_scope}. `}{m.notes}</p>)}{c.capability_kind === "AIRCRAFT" && onReviewCapability && <button type="button" onClick={() => onReviewCapability(c.capability_id)}>Review type mappings</button>}</article>)}
         </section>}
       </aside>
     </div>

@@ -62,7 +62,7 @@ const data = { watch:{id:1,registration:'G-TEST'},from:'2026-08-20',to:'2026-08-
     await page.waitForFunction(() => window.scrollY === 0);
     await page.waitForTimeout(200);
     await page.screenshot({path:'tmp/map-browser-results/desktop.png',fullPage:true});
-    await page.getByLabel('Type matches only (site or company)').check();
+    await page.getByLabel('Type matches only (including possible families)').check();
     await page.getByLabel('Find a base').fill('Company scope');
     assert.equal(await page.locator('.map-base-list button').count(),1);
     await page.getByLabel('Watched aircraft').selectOption('2');

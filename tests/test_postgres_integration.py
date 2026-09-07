@@ -48,6 +48,8 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase16.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase17.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase17.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase18.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase18.sql")
         # Application startup replays every idempotent migration. Phase 9 adds
         # company columns, so Phase 8 views must remain stable on the next run.
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase8.sql")
@@ -163,6 +165,31 @@ class PostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(map_data(self.store,empty['id'],'2026-08-20','2026-08-20')['stops'],[])
         with self.assertRaises(ValueError):
             map_data(self.store,999999,'2026-08-20','2026-08-20')
+
+    def test_capability_mapping_audit_and_stale_scope(self):
+        from adsb_ingest.capability_mappings import CapabilityMappingStore
+        mappings = CapabilityMappingStore(self.store)
+        with self.store.connect() as c:
+            company = c.execute("INSERT INTO company(company_key,name) VALUES ('mapping-review','Review MRO') RETURNING id").fetchone()[0]
+            approval = c.execute("INSERT INTO regulatory_approval(company_id,authority_code,approval_type,approval_number) VALUES (%s,'TEST','PART_145','REVIEW.145') RETURNING id", (company,)).fetchone()[0]
+            c.execute("INSERT INTO company_data_source(code,name) VALUES ('REVIEW_TEST','Review test')")
+            cap = c.execute("INSERT INTO approval_capability(regulatory_approval_id,source_code,capability_key,capability_kind,limitation) VALUES (%s,'REVIEW_TEST','family','AIRCRAFT','MBB-BK117 SERIES') RETURNING id", (approval,)).fetchone()[0]
+        detail = mappings.detail(cap)
+        payload = dict(aircraft_type_code='ec45', match_level='POSSIBLE_FAMILY', variant_scope='', source_url='https://example.test/approval', notes='Family relationship only', revision=0, active=True, evidence_snapshot=detail['source_snapshot'])
+        saved = mappings.save(cap, payload, 'analyst@example.com')
+        self.assertEqual(saved['aircraft_type_code'], 'EC45')
+        self.assertEqual(mappings.search('Review MRO')['rows'][0]['mapping_count'], 1)
+        with self.assertRaises(ValueError): mappings.save(cap, payload, 'second@example.com')
+        revised = mappings.save(cap, {**payload, 'revision':1, 'active':False}, 'second@example.com')
+        self.assertEqual(revised['revision'], 2)
+        self.assertEqual(mappings.detail(cap)['history'][0]['snapshot']['reviewed_by'], 'analyst@example.com')
+        with self.store.connect() as c:
+            c.execute("UPDATE approval_capability SET limitation='C-2 only' WHERE id=%s", (cap,))
+        self.assertTrue(mappings.detail(cap)['mappings'][0]['stale'])
+        with self.assertRaises(ValueError): mappings.save(cap, {**payload,'revision':2}, 'analyst@example.com')
+        fresh = mappings.detail(cap)['source_snapshot']
+        mappings.save(cap, {**payload,'revision':2,'evidence_snapshot':fresh}, 'analyst@example.com')
+        self.assertFalse(mappings.detail(cap)['mappings'][0]['stale'])
 
     def test_company_import_is_idempotent_and_preserves_roles_and_scope(self) -> None:
         assert TEST_DATABASE_URL is not None

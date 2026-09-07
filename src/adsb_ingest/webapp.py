@@ -18,6 +18,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .analytics import AnalyticsStore
 from .maintenance import MaintenanceStore
+from .capability_mappings import CapabilityMappingStore
 from .access import AccessStore, AccessUser, normalize_email, normalize_role
 from .companies import PHASE8_MIGRATION
 from .natural_language import NaturalLanguageAnalytics, QueryPlannerUnavailable
@@ -44,6 +45,7 @@ PUBLIC_DEMO_ENDPOINTS = frozenset(
     }
 )
 MUTATION_MINIMUM_ROLE = {
+    "capability_mapping_save": "ANALYST",
     "maintenance_add": "ANALYST",
     "maintenance_review": "ANALYST",
     "maintenance_archive": "ANALYST",
@@ -240,6 +242,7 @@ def create_app(
         analytics.apply_phase15_migration()
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase16.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase17.sql')
+        admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase18.sql')
     query_service = natural_language or SemanticNaturalLanguageAnalytics(analytics)
     worker = SequentialIngestionWorker(
         admin_store,
@@ -635,6 +638,21 @@ def create_app(
     @app.get('/api/maintenance/watches')
     def maintenance_watches():
         return jsonify(_json_ready(MaintenanceStore(admin_store).watches()))
+
+    @app.get('/api/capability-mappings')
+    def capability_mapping_search():
+        return jsonify(_json_ready(CapabilityMappingStore(admin_store).search(
+            request.args.get('q',''), int(request.args.get('offset','0')))))
+
+    @app.get('/api/capability-mappings/<int:capability_id>')
+    def capability_mapping_detail(capability_id):
+        return jsonify(_json_ready(CapabilityMappingStore(admin_store).detail(capability_id)))
+
+    @app.post('/api/capability-mappings/<int:capability_id>')
+    def capability_mapping_save(capability_id):
+        actor = require_access_role('ANALYST')
+        return jsonify(_json_ready(CapabilityMappingStore(admin_store).save(
+            capability_id, request.get_json() or {}, actor.email)))
 
     @app.post('/api/maintenance/watches')
     def maintenance_add():
