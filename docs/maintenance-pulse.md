@@ -23,8 +23,8 @@ Episodes spanning UTC boundaries are not certified flight/cycle counters.
 Registration matching is currently historical registration text, not a durable
 airframe identity across re-registrations. Check addresses when ownership or
 registration changes are suspected. The timeline is limited to 500 entries
-per section and explicitly signals truncation. For sampled flight playback and
-Part-145 overlays, use the separate **Flight map** tab (see below). Neither page
+per section and explicitly signals truncation. For stop history and
+Part-145 overlays, use the separate **Stops map** tab (see below). Neither page
 establishes hangar-level presence.
 
 Due-date prediction and automated alerts are deferred until reviewed comparable
@@ -55,22 +55,33 @@ Commit/push locally, then use the VPS update procedure in vps-deployment.md.
 Migration phase16.sql is included in heligent-migrate and application startup.
 The rebuilt frontend is included. The phase-16 watchlist/review feature alone
 needs no Pi update or additional raw reprocessing beyond flight-visits-v1.
-The phase-17 map adds a migration and needs reprocessing for actual paths, as
-described below. Verify MRO companies have active airport-linked sites.
+The phase-17 stops map adds only a lookup index. It uses existing visit summaries
+without reprocessing or extra coordinate retention. Verify MRO companies have active airport-linked sites.
 
-## Flight map (phase 17)
+## Stops map (phase 17)
 
-Open **Flight map**, or `/#tracks`. Choose a team-watched registration and UTC
-dates (default: latest processed week; maximum: 31 days). Select an episode to
-play or scrub its sampled observations. Airport-visit markers show the times,
-confidence and ground-observation count. The base sidebar supports search,
-type-match filtering and individual selection where markers overlap.
+Open **Stops map**, or the existing `/#tracks` bookmark. Choose a watched
+registration and UTC dates (default: latest processed week; maximum: 31 days).
+The map reads existing airport-visit summaries, not individual ADS-B coordinates.
 
-Solid blue lines connect retained ADS-B samples; **dashed grey lines are only
-inferred airport connections**, never actual flown paths. Flights without known
-endpoints may have no legacy connection at all. Missing dates, receiver gaps,
-unmapped bases and display limits are reported explicitly. Playback holds the
-last observed position through gaps rather than animating an invented flight.
+Numbered stops are chronological within the displayed records. Repeated visits
+at one airport share a marker listing their numbers; select an individual record
+from the timeline. Marker size reflects the largest **observed ground duration**
+among that airport's displayed visits, not the span between sightings.
+Dashed connectors show sighting order for the same address only. They are not
+flight paths, proof of a direct journey, or evidence of continuous reception.
+
+Selecting a stop shows arrival/departure estimates and evidence types, first/last
+sightings, observed ground time, elapsed evidence span, confidence, quality flags
+and open UTC boundaries. **A six-hour span with thirty minutes of observed ground
+time is not six confirmed hours at the airport.** Proximity-only episodes are
+explicitly marked as unconfirmed stops. Daily records remain separate; no
+multi-day stay is inferred across silence.
+
+The base sidebar defaults to airport-linked bases at the selected stop, with an
+option to show the wider catalogue. Same-airport links are investigatory leads,
+not proof that the aircraft entered that base. Search, type-match filters and
+individual selection handle overlapping airport-centre markers.
 
 The map uses registrations and type codes recorded in `aircraft_day` on the
 selected dates, not current ownership or a permanent airframe identity. This
@@ -101,50 +112,35 @@ Site coordinates are preferred; airport-centre fallbacks are labelled and must
 not be read as a hangar location. Sites without coordinates stay in the list.
 No automatic geocoding, external enrichment or maintenance confirmation occurs.
 
-### Parser and storage changes
+### Storage and existing data
 
-`phase17.sql` adds nullable `aircraft_flight_segment.track` JSONB and a historical
-registration/date lookup index. `flight-visits-v2-tracks` keeps the existing
-episode/visit calculations, adding compact airborne coordinates for **active
-team-watched aircraft only** in the ingestion worker. The watchlist is snapshotted
-once at the start of processing each date; its registrations and `track_scope`
-are recorded in `dataset_day.derivation_config`. Adding a tail during a running
-day does not change that day's snapshot. Newly watched tails require explicit
-reprocessing of earlier dates to obtain paths. Other aircraft retain their
-ordinary episode/visit summaries without the added coordinate-storage burden.
-The standalone `summarize_trace` function defaults to retaining paths; ingestion
-passes the watchlist decision explicitly for each trace.
+The earlier coordinate-retention proposal has been withdrawn. Parsing remains
+`flight-visits-v1`: no intermediate coordinates, track JSON, playback or watchlist
+snapshot are added to ingestion. The watchlist selects what is displayed, not
+what ordinary airport visits are collected. Adding a tail can therefore reveal
+its already-processed stop history immediately.
 
-The versioned object contains `segments` of `[epoch_seconds, latitude, longitude,
-altitude_ft_or_null]`, input/retained counts, a truncation flag, sampling interval
-and reception-gap threshold. Sampling retains one point per 15 seconds plus
-continuous-run endpoints, rounded to five coordinate decimals. It is not an
-error-bounded reconstruction: short turns between retained fixes may be lost.
-Lines break on missing fixes, >120-second gaps (configurable continuous-gap
-threshold), implausible speed jumps and antimeridian crossings. These checks
-are quality safeguards, not a guarantee that every ADS-B fix is correct.
-Ground taxi paths and precise hangar entry are not retained in this version.
-The original archived files remain the source for finer-grained future work.
+`phase17.sql` now creates only the historical registration/date lookup index.
+There is no new track column on a fresh deployment. If an experimental version
+was applied elsewhere, any existing track column/data is left untouched rather
+than deleted automatically; the revised parser and map do not write or read it.
 
-Each episode retains at most 2,048 points; later points are explicitly flagged
-as omitted when capped. COPY batches also flush at 50,000 buffered track points
-to limit the additional Python memory burden. Storage and parsing work will
-increase; measure a representative day's derived size before a full rebuild.
-Existing datasets remain untouched until **explicitly** reprocessed. Rebuilding
-replaces derived paths/episodes for that day but preserves watchlists/reviews.
-Only tails active in that rebuild's watchlist retain paths: archiving a tail
-does not immediately delete its paths, but a later date rebuild can replace them
-with NULL. Keep tails watched while rebuilding history you want to retain.
+No extra raw processing or Pi update is required **if the selected dates already
+have flight/airport-visit summaries**. Older dates processed before that existing
+visit derivation will not gain visits from a UI update alone. Missing receiver
+coverage or missing airport matches also cannot be fixed just by drawing a map.
 
-Map responses are bounded to 250 newest episodes, 500 newest visits and 30,000
-track points; narrow dates when a limit is reported. The base catalogue caps at
-5,000 sites / 20,000 capability rows with explicit warnings. Database statements
-time out at 15 seconds. No map read downloads archives or runs processing jobs.
+The response contains the latest 500 daily visit records in the selected window,
+then numbers them chronologically. A truncation warning identifies incomplete
+history. The catalogue caps at 5,000 sites / 20,000 capability rows, with warnings.
+Database statements time out at 15 seconds. No map read downloads files,
+reprocesses a date, alters reviews or starts a job.
 
 ### Map API and CARTO configuration
 
 - `GET /api/maintenance/watches/{id}/map?from=YYYY-MM-DD&to=YYYY-MM-DD`:
-  watch identity, coverage, aircraft-days, flight tracks, visits and base scope.
+  watch identity, coverage, aircraft-days, numbered `stops` and base scope.
+  Each stop separates `ground_time_seconds` from `evidence_span_seconds`.
 - `GET /api/maintenance/map-config`: the browser-visible CARTO basemap key.
 
 Both require normal Heligent web authentication; public demo access is blocked.
@@ -170,22 +166,22 @@ live `git pull` while a worker is processing**. Phase 17 is included in migratio
 and startup. Restart **all three** services, including `heligent-ngrok`; stopping
 the web service can also stop its dependent tunnel.
 
-The compiled SPA assets are checked in; the VPS needs no Node build. The Pi needs
-no changes and archived files need not be downloaded again from upstream if they
-are still available on the Pi. After deployment, explicitly reprocess **one known
-watched-tail day** using the Pi source (add the tail before processing starts), inspect its map and storage growth, then
-decide which older dates to rebuild. Already completed v1 dates cannot acquire
-real flight paths through migration alone. The ongoing queue is not automatically
-requeued or rewritten by this change.
+The compiled SPA assets are checked in; the VPS needs no Node build. No Pi change
+or new map-specific reprocessing is required. Commit and push this revision as a
+normal follow-up commit, then pull the updated branch on the VPS; no force-push,
+history rewrite or intermediate deployment of the earlier map is needed.
+
+After deployment, select an already-processed period and a watched tail. Existing
+airport visits should appear immediately. Nothing automatically requeues the
+running or completed backfill.
 
 ### Validation
 
-Unit tests cover sampling endpoints, gaps, invalid positions, antimeridian breaks,
-track caps, date validation, scope matching and authenticated routes. PostgreSQL
-integration tests exercise persistence, legacy NULL tracks and site-scope isolation.
-`web/tests/flight-map.browser.cjs` exercises the built SPA with synthetic API/tile
-fixtures: selection, playback, base scopes, filtering, empty tails and mobile
-layout. It needs Playwright available through Node resolution (it is not a
-production dependency) and the built static directory served on loopback port
-5089, or `MAP_TEST_URL` set to another local test server. It does not test a real
-CARTO key or production receiver coverage.
+Unit tests cover date limits, capability scope and authenticated endpoints.
+PostgreSQL integration tests verify existing visit summaries appear without
+a track column or raw rebuild, plus site-scope isolation and empty tails.
+`web/tests/flight-map.browser.cjs` uses synthetic API and tile fixtures for stop
+selection, observed-vs-elapsed evidence, repeat visits, catalogue filters, empty
+tails and mobile layout. It needs Playwright through Node resolution and a
+loopback static server on port 5089 (or `MAP_TEST_URL`). It is not a production
+dependency and does not test a real CARTO key or live receiver coverage.

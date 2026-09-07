@@ -3,47 +3,8 @@ from datetime import date
 from unittest.mock import patch
 
 from adsb_ingest.maintenance_map import capability_match, date_window
-from adsb_ingest.summarize import ActivityConfig, _Point, compact_track
-from adsb_ingest.summarize import summarize_trace
-from adsb_ingest.archive import TracePayload
-from test_phase2 import trace_row
 from adsb_ingest.webapp import create_app
 from test_webapp import FakeAdminStore, FakeAnalyticsStore, FakeNaturalLanguage, FakeAccessStore
-
-
-def point(t, lat=51, lon=0):
-    return _Point(t, lat, lon, False, True, 1000, 100, None)
-
-
-class TrackTests(unittest.TestCase):
-    def test_unwatched_ingestion_can_omit_paths_without_changing_episodes(self):
-        from test_phase2 import AirportIndexTests
-        fixture = AirportIndexTests()
-        fixture.setUp()
-        payload = TracePayload('trace.json','abcdef',100,500,{'icao':'abcdef','r':'G-TEST',
-            'timestamp':1787184000,'trace':[trace_row(0,51,0,2000,100),trace_row(60,51.01,0,2000,100)]})
-        kept = summarize_trace(payload,date(2026,8,20),fixture.index)
-        omitted = summarize_trace(payload,date(2026,8,20),fixture.index,retain_track=False)
-        self.assertIsNotNone(kept.flight_segments[0].track)
-        self.assertIsNone(omitted.flight_segments[0].track)
-        self.assertEqual(kept.aircraft_day,omitted.aircraft_day)
-        self.assertEqual(kept.flight_segments[0].observed_airborne_seconds,omitted.flight_segments[0].observed_airborne_seconds)
-
-    def test_sampling_keeps_endpoints_and_breaks_reception_gaps(self):
-        track = compact_track([point(t, lon=t/100000) for t in [0,5,10,15,20,30,40,500,510]], ActivityConfig())
-        self.assertEqual([[p[0] for p in line] for line in track['segments']], [[0,15,30,40],[500,510]])
-        self.assertFalse(track['truncated'])
-
-    def test_invalid_coordinates_jumps_and_dateline_are_not_connected(self):
-        track = compact_track([point(0),point(10,lat=None),point(20),point(30,lat=0)], ActivityConfig())
-        self.assertEqual(len(track['segments']),3)
-        track = compact_track([point(0,lon=179.99),point(60,lon=-179.99)], ActivityConfig())
-        self.assertEqual(len(track['segments']),2)
-
-    def test_track_budget_is_explicit(self):
-        track = compact_track([point(t*15) for t in range(3000)], ActivityConfig())
-        self.assertEqual(track['retained_count'],2048)
-        self.assertTrue(track['truncated'])
 
 
 class MapTests(unittest.TestCase):
@@ -78,6 +39,6 @@ class MapTests(unittest.TestCase):
             self.assertEqual(result.status_code,200)
             self.assertEqual(result.json,{'carto_key':'tile-key'})
             self.assertIn("img-src 'self' data: https://basemaps.cartocdn.com;",result.headers['Content-Security-Policy'])
-            with patch('adsb_ingest.maintenance_map.map_data', return_value={'flights':[]}) as read:
+            with patch('adsb_ingest.maintenance_map.map_data', return_value={'stops':[]}) as read:
                 self.assertEqual(client.get('/api/maintenance/watches/1/map?from=2026-08-01&to=2026-08-07',headers=headers).status_code,200)
                 self.assertEqual(read.call_args.args[1:],(1,'2026-08-01','2026-08-07'))

@@ -128,7 +128,7 @@ class PostgresIntegrationTests(unittest.TestCase):
         summary = summarize_trace(trace, discovery.utc_date, AirportIndex([airport]))
         return catalog, discovery, summary
 
-    def test_map_tracks_legacy_fallback_and_capability_scope(self):
+    def test_map_existing_stops_and_capability_scope(self):
         catalog, discovery, summary = self.fixture()
         self.store.upsert_airports(catalog)
         dataset_id = self.store.upsert_dataset(discovery)
@@ -146,9 +146,10 @@ class PostgresIntegrationTests(unittest.TestCase):
                 VALUES (%s,%s,'MAP_TEST','site','AIRCRAFT','H145'),(%s,NULL,'MAP_TEST','company','AIRCRAFT','H145')''',(approval,first,approval))
         data = map_data(self.store,watch['id'],'2026-08-20','2026-08-20')
         self.assertEqual(data['type_code'],'H145')
-        self.assertEqual(data['flights'][0]['track']['version'],'observed-track-v1')
-        self.assertGreater(data['flights'][0]['track']['retained_count'],0)
-        self.assertEqual(data['visits'][0]['airport_ident'],'TEST')
+        self.assertNotIn('flights', data)
+        self.assertEqual(data['stops'][0]['airport_ident'],'TEST')
+        self.assertEqual(data['stops'][0]['number'],1)
+        self.assertGreaterEqual(data['stops'][0]['evidence_span_seconds'], data['stops'][0]['ground_time_seconds'])
         a = next(s for s in data['sites'] if s['id']==first)
         b = next(s for s in data['sites'] if s['id']==second)
         self.assertEqual(a['match'],'SITE_MATCH')
@@ -157,10 +158,9 @@ class PostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(b['location_precision'],'UNLOCATED')
         self.assertEqual(len(b['capabilities']),1) # no other site's capability leaks
         with self.store.connect() as c:
-            c.execute('UPDATE aircraft_flight_segment SET track=NULL WHERE dataset_day_id=%s',(dataset_id,))
-        self.assertIsNone(map_data(self.store,watch['id'],'2026-08-20','2026-08-20')['flights'][0]['track'])
+            self.assertEqual(c.execute("SELECT count(*) FROM information_schema.columns WHERE table_name='aircraft_flight_segment' AND column_name='track'").fetchone()[0],0)
         empty = MaintenanceStore(self.store).add({'registration':'G-EMPTY'},'map@example.com')
-        self.assertEqual(map_data(self.store,empty['id'],'2026-08-20','2026-08-20')['flights'],[])
+        self.assertEqual(map_data(self.store,empty['id'],'2026-08-20','2026-08-20')['stops'],[])
         with self.assertRaises(ValueError):
             map_data(self.store,999999,'2026-08-20','2026-08-20')
 
