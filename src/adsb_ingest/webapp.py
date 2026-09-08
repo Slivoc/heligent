@@ -49,6 +49,7 @@ MUTATION_MINIMUM_ROLE = {
     "identity_assign": "ANALYST",
     "capability_mapping_save": "ANALYST",
     "lba_preview": "ANALYST",
+    "lba_import": "ANALYST",
     "maintenance_add": "ANALYST",
     "maintenance_review": "ANALYST",
     "maintenance_archive": "ANALYST",
@@ -247,6 +248,7 @@ def create_app(
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase17.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase18.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase19.sql')
+        admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase20.sql')
     query_service = natural_language or SemanticNaturalLanguageAnalytics(analytics)
     worker = SequentialIngestionWorker(
         admin_store,
@@ -648,7 +650,8 @@ def create_app(
         require_access_role('VIEWER')
         from .unidentified import unidentified_activity
         return jsonify(_json_ready(unidentified_activity(admin_store,
-            request.args.get('from'), request.args.get('to'), int(request.args.get('offset','0')))))
+            request.args.get('from'), request.args.get('to'), int(request.args.get('offset','0')),
+            request.args.get('category','ALL'), request.args.get('region','ALL'))))
 
     @app.post('/api/tools/identity/preview')
     def identity_preview():
@@ -664,12 +667,25 @@ def create_app(
 
     @app.post('/api/tools/lba/preview')
     def lba_preview():
-        require_access_role('ANALYST')
+        actor = require_access_role('ANALYST')
         from .lba import fetch_preview
+        from .lba_import import stage_preview
         payload = request.get_json() or {}
         if not isinstance(payload, dict):
             raise ValueError('Expected a JSON object')
-        return jsonify(fetch_preview(payload.get('query')))
+        return jsonify(stage_preview(admin_store, fetch_preview(payload.get('query')), actor.email))
+
+    @app.post('/api/tools/lba/import')
+    def lba_import():
+        from .lba_import import import_selection
+        actor = require_access_role('ANALYST')
+        return jsonify(import_selection(admin_store, request.get_json(), actor.email))
+
+    @app.get('/api/tools/lba/history')
+    def lba_history():
+        from .lba_import import import_history
+        require_access_role('VIEWER')
+        return jsonify(_json_ready(import_history(admin_store)))
 
     @app.get('/api/capability-mappings')
     def capability_mapping_search():

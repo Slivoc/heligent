@@ -21,8 +21,8 @@ export function IdentityAssignment({address,onSaved,onCancel}:{address:string;on
       <label>ICAO type (optional)<input maxLength={4} value={form.type_code} onChange={e=>change('type_code',e.target.value.toUpperCase())} placeholder="EC45"/></label>
       <label>Valid from (UTC)<input required type="date" value={form.valid_from} onChange={e=>change('valid_from',e.target.value)}/></label>
       <label>Valid to (optional, inclusive)<input type="date" value={form.valid_to} onChange={e=>change('valid_to',e.target.value)}/></label>
-      <label>Evidence URL<input required type="url" maxLength={2000} value={form.source_url} onChange={e=>change('source_url',e.target.value)}/></label>
-      <label>Evidence notes<textarea required maxLength={4000} value={form.notes} onChange={e=>change('notes',e.target.value)}/></label>
+      <label>Source URL (optional)<input type="url" maxLength={2000} value={form.source_url} onChange={e=>change('source_url',e.target.value)}/></label>
+      <label>Notes (optional)<textarea maxLength={4000} value={form.notes} onChange={e=>change('notes',e.target.value)}/></label>
       <button>Preview affected records</button>
     </fieldset></form>
     {error&&<p role="alert" className="map-warning">{error}</p>}

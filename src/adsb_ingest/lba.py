@@ -1,4 +1,4 @@
-"""Bounded, preview-only LBA directory adapter. Never writes catalogue records."""
+"""Bounded LBA fetch/parse adapter. Catalogue writes live in lba_import."""
 from datetime import datetime, timezone
 from hashlib import sha256
 from html import unescape

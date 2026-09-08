@@ -39,3 +39,7 @@
 .flight-map-canvas .leaflet-popup-content p { font-size: 12px; }
 @media (max-width: 1000px) { .flight-map-layout { grid-template-columns: 1fr; } .map-sidebar { max-height: none; } .flight-map-canvas { height: 460px; } }
 @media (max-width: 600px) { .flight-map-page { padding: 12px; } .map-controls label { flex: 1 1 40%; } .flight-map-canvas { height: 380px; } }
+.stop-maintenance-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.stop-maintenance-badge { display: inline-block; border: 1px solid; border-radius: 6px; padding: 6px 8px; background: #fff; font-size: 14px; }
+.map-stop-heading { flex-wrap: wrap; gap: 12px; }
+.map-stop-heading label { display: grid; gap: 4px; }

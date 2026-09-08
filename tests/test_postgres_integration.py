@@ -50,6 +50,8 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase17.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase18.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase19.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase20.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase20.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase19.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase18.sql")
         # Application startup replays every idempotent migration. Phase 9 adds
@@ -168,6 +170,43 @@ class PostgresIntegrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             map_data(self.store,999999,'2026-08-20','2026-08-20')
 
+    def test_lba_selected_import_is_atomic_and_repeatable(self):
+        from adsb_ingest.lba_import import stage_preview,import_selection,import_history
+        org={'name':'LBA Test Helicopters','approval':'DE.145.TESTLBA - gültig seit 01.09.2026','sites':[
+            {'street':'Hangar 1','locality':'12345 Test town','ratings':[{'wording':'A3 - Hubschrauber (Base- und Line Maintenance)','models':['MBB-BK117']}]},
+            {'street':'Hospital 2','locality':'23456 Other town','ratings':[{'wording':'A3 - Hubschrauber (nur Line Maintenance)','models':['EC135']}, {'wording':'C6 - Ausrüstung','models':['Components']}]}]}
+        snapshot={'organisations':[{'name':'Do not import'},org],'truncated':False,'fetched_at':'2026-09-08T12:00:00Z','source_sha256':'a'*64}
+        staged=stage_preview(self.store,snapshot,'analyst@example.com')
+        payload={'preview_id':staged['preview_id'],'organisation_index':1,'confirmed':True}
+        result=import_selection(self.store,payload,'analyst@example.com')
+        self.assertEqual(result['sites'],2)
+        self.assertEqual(result['capabilities_added'],3)
+        self.assertFalse(result['already_imported'])
+        self.assertTrue(import_selection(self.store,payload,'analyst@example.com')['already_imported'])
+        with self.store.connect() as c:
+            self.assertEqual(c.execute("SELECT count(*) FROM company WHERE name='Do not import'").fetchone()[0],0)
+            caps=c.execute("SELECT capability_kind,is_base_maintenance,is_line_maintenance,aircraft_type_code FROM approval_capability WHERE regulatory_approval_id=%s ORDER BY id",(result['approval_id'],)).fetchall()
+            self.assertEqual(caps[0],('AIRCRAFT',True,True,None))
+            self.assertEqual(caps[1],('AIRCRAFT',False,True,None))
+            self.assertEqual(caps[2][0],'COMPONENT')
+            c.execute("UPDATE company_site SET name='Curated hangar' WHERE company_id=%s",(result['company_id'],))
+        fresh=stage_preview(self.store,snapshot,'analyst@example.com')
+        self.assertTrue(import_selection(self.store,{**payload,'preview_id':fresh['preview_id']},'analyst@example.com')['already_imported'])
+        org['sites'][0]['ratings'][0]['models'].append('EC135')
+        changed=stage_preview(self.store,snapshot,'analyst@example.com')
+        with self.assertRaises(ValueError): import_selection(self.store,{**payload,'preview_id':changed['preview_id']},'analyst@example.com')
+        self.assertEqual(len(import_history(self.store)),1)
+        with self.store.connect() as c:
+            self.assertEqual(c.execute('SELECT name FROM company_site WHERE company_id=%s LIMIT 1',(result['company_id'],)).fetchone()[0],'Curated hangar')
+        # A malformed later site must not leave a company or partial approval behind.
+        org['name']='Rejected LBA Organisation'
+        org['approval']='DE.145.REJECTED - gültig seit 01.09.2026'
+        org['sites'][1]['ratings']=[]
+        broken=stage_preview(self.store,snapshot,'analyst@example.com')
+        with self.assertRaises(ValueError): import_selection(self.store,{**payload,'preview_id':broken['preview_id']},'analyst@example.com')
+        with self.store.connect() as c:
+            self.assertEqual(c.execute("SELECT count(*) FROM company WHERE name='Rejected LBA Organisation'").fetchone()[0],0)
+
     def test_zzz_identity_assignment(self):
         from adsb_ingest.identity import assign_identity
         payload=dict(address='abcdef',registration='G-TEST',type_code='H145',valid_from='2026-08-20',valid_to='2026-08-20',source_url='https://example.test/registry',notes='Verified identity')
@@ -205,6 +244,18 @@ class PostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(row['days'], 1)
         self.assertIn('TEST1', row['callsigns'])
         self.assertEqual(row['current_registration'], 'G-TEST')
+        self.assertEqual(row['top_visits'][0]['airport_ident'],'TEST')
+        with self.store.connect() as c:
+            c.execute("INSERT INTO aircraft_type_classification(type_code,category,classification_source) VALUES ('H145','ROTORCRAFT','TEST') ON CONFLICT(type_code) DO UPDATE SET category='ROTORCRAFT'")
+        self.assertTrue(unidentified_activity(self.store,'2026-08-20','2026-08-20',category='ROTORCRAFT',region='EU')['rows'])
+        self.assertFalse(unidentified_activity(self.store,'2026-08-20','2026-08-20',category='FIXED_WING')['rows'])
+        self.assertFalse(unidentified_activity(self.store,'2026-08-20','2026-08-20',region='NA')['rows'])
+        with self.store.connect() as c:
+            c.execute("UPDATE aircraft_day SET type_code=NULL WHERE address='abcdef'")
+        self.assertTrue(unidentified_activity(self.store,'2026-08-20','2026-08-20',category='ROTORCRAFT_UNKNOWN')['rows'])
+        self.assertFalse(unidentified_activity(self.store,'2026-08-20','2026-08-20',category='ROTORCRAFT')['rows'])
+        with self.store.connect() as c:
+            c.execute("UPDATE aircraft_day SET type_code='H145' WHERE address='abcdef'")
         self.assertFalse(result['has_more'])
         with self.assertRaises(ValueError): unidentified_activity(self.store,'2026-08-01','2026-09-05')
 

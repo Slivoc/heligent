@@ -23,7 +23,7 @@ Schema phase18 adds `capability_aircraft_mapping` and `capability_mapping_revisi
 
 The [LBA technical organisations directory](https://iauskunft.lba.de/tb/) can be queried by organisation name. A read-only ADAC search on 7 September 2026 returned ADAC Heliservice GmbH, approval DE.145.0058, with individual operating locations and ratings/models. The Sankt Augustin site includes A3 base and line maintenance for EC135 and MBB-BK117; other locations may be line-only. These broad model names still need reviewed ICAO/variant mappings.
 
-The directory is a JSF form with session/view-state and AJAX responses, rather than an advertised API in the inspected interface. A subsequent first-pass adapter now supports **fetch and preview only** under Tools; catalogue import is not implemented. See [Tools / Data imports](tools-data-imports.md).
+The directory is a JSF form with session/view-state and AJAX responses, rather than an advertised API in the inspected interface. Tools now supports **fetch → select organisation → confirm import**, preserving site scope. Changed repeat imports still need a future update/merge workflow. See [Tools / Data imports](tools-data-imports.md).
 
 Recommended adapter:
 

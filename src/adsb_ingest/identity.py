@@ -27,10 +27,10 @@ def validate(payload):
     source = str(payload.get('source_url','')).strip()
     url = urlparse(source)
     notes = str(payload.get('notes','')).strip()
-    if url.scheme not in ('http','https') or not url.hostname or url.username or url.password or len(source)>2000:
+    if source and (url.scheme not in ('http','https') or not url.hostname or url.username or url.password or len(source)>2000):
         raise ValueError('Provide an HTTP(S) evidence URL without credentials')
-    if not notes or len(notes)>4000:
-        raise ValueError('Provide evidence notes (maximum 4000 characters)')
+    if len(notes)>4000:
+        raise ValueError('Notes must be at most 4000 characters')
     return dict(address=address,registration=registration,type_code=code,valid_from=start,valid_to=end,source_url=source,notes=notes)
 
 

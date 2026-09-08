@@ -175,6 +175,12 @@ After deployment, select an already-processed period and a watched tail. Existin
 airport visits should appear immediately. Nothing automatically requeues the
 running or completed backfill.
 
+### Timeline review aids
+
+The Stops map timeline can be sorted chronologically, newest first, or by highest observed ground time. Sorting affects the displayed list only: chronological stop numbers and map connectors remain unchanged. Airport-linked maintenance sites appear as badges on each stop, showing existing match status (site-specific, company-wide, possible/restricted family, stale, expired or no recorded match). Unknown aircraft type is explicitly labelled as not evaluated. These use the loaded catalogue and current approval status, not proof of historical approval or actual maintenance. Incomplete/unlocated catalogue records cannot produce airport badges.
+
+Hangar coordinates improve map placement but do not make airport-level visit summaries precise enough to prove hangar entry. Reliable facility attribution would additionally need suitable ground-position evidence and uncertainty handling; no such data retention is added here.
+
 ### Validation
 
 Unit tests cover date limits, capability scope and authenticated endpoints.

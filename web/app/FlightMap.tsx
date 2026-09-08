@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type * as Leaflet from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./flight-map.css";
+import { orderedStops, maintenanceLeads } from './stopReview';
 
 type Watch = { id: number; registration: string };
 type Stop = { number: number; dataset_day_id: number; address: string; visit_sequence: number; airport_ident: string; airport_name: string; latitude_deg: number; longitude_deg: number; first_evidence_at: string; last_evidence_at: string; arrived_at: string | null; departed_at: string | null; ground_time_seconds: number; evidence_span_seconds: number; confidence: string; ground_observation_count: number; proximity_observation_count: number; closest_distance_nm: number; arrival_evidence: string | null; departure_evidence: string | null; open_at_start: boolean; open_at_end: boolean; quality_flags: string[] };
@@ -39,6 +40,7 @@ export function FlightMap({ onReviewCapability }: { onReviewCapability?: (id: nu
   const [key, setKey] = useState<string | null>(null);
   const [tileError, setTileError] = useState(false);
   const [selectedStop, setSelectedStop] = useState("");
+  const [timelineOrder, setTimelineOrder] = useState('TIME');
   const [atStopOnly, setAtStopOnly] = useState(true);
   const [fitRevision, setFitRevision] = useState(0);
   const [selectedSite, setSelectedSite] = useState<Site | null>(null);
@@ -190,7 +192,8 @@ export function FlightMap({ onReviewCapability }: { onReviewCapability?: (id: nu
         <div className="map-legend"><span>① Stop order (UTC)</span><span>○ Larger circle = more observed ground time</span><span>┄ Sighting sequence, not a flight path</span>{Object.entries(labels).map(([k, label]) => <span key={k} style={{ color: colors[k as Match] }}>● {label}</span>)}</div>
         <div ref={element} className="flight-map-canvas" aria-label="Historical aircraft stops and Part-145 bases map" />
         <section className="map-stops">
-          <div className="map-stop-heading"><h2>Stop timeline (UTC)</h2><button type="button" onClick={() => { setSelectedStop(""); setSelectedSite(null); setFitRevision(n => n + 1); }}>Show all stops</button></div>
+          <div className="map-stop-heading"><h2>Stop timeline (UTC)</h2><label>Sort stops<select value={timelineOrder} onChange={e=>setTimelineOrder(e.target.value)}><option value="TIME">Chronological</option><option value="NEWEST">Newest first</option><option value="GROUND">Most observed ground time</option></select></label><button type="button" onClick={() => { setSelectedStop(""); setSelectedSite(null); setFitRevision(n => n + 1); }}>Show all stops</button></div>
+          <p className="map-note">Sorting changes only this list; stop numbers and map connections stay chronological. Maintenance badges refer to airport-linked sites in the catalogue, not confirmed hangar visits.</p>
           <p className="map-note">A record is one daily airport-visit episode, not necessarily a separate landing. Repeated days at the same airport are kept separate; no stay is inferred across missing observations. Shared markers list multiple stop numbers.</p>
           {stop && <article className="map-stop-detail" aria-label="Selected stop evidence">
             <h3>Stop {stop.number} · {stop.airport_ident} · {stop.airport_name}</h3>
@@ -205,9 +208,10 @@ export function FlightMap({ onReviewCapability }: { onReviewCapability?: (id: nu
             {stop.ground_observation_count === 0 && <p className="map-warning">Proximity-only evidence: no ground observations. A stop or landing is not confirmed.</p>}
             <p className="map-note">Quality flags: {stop.quality_flags.join(", ") || "none recorded"}. Airport association does not prove entry into an individual base or maintenance.</p>
           </article>}
-          <div className="map-stop-list">{data?.stops.map(s => <button type="button" key={stopId(s)} aria-pressed={stopId(s) === selectedStop} onClick={() => { setSelectedStop(stopId(s)); setSelectedSite(null); }}>
+          <div className="map-stop-list">{orderedStops(data?.stops || [],timelineOrder).map(s => <button type="button" key={stopId(s)} aria-pressed={stopId(s) === selectedStop} onClick={() => { setSelectedStop(stopId(s)); setSelectedSite(null); }}>
             <strong>{s.number}. {s.airport_ident} · {s.airport_name}</strong><span>{utc(s.first_evidence_at)} → {utc(s.last_evidence_at)}</span>
             <small>{duration(s.ground_time_seconds)} observed ground · {duration(s.evidence_span_seconds)} evidence span · {s.confidence}{s.ground_observation_count === 0 ? " · proximity only" : ""}</small>
+            <span className="stop-maintenance-badges">{maintenanceLeads(data?.sites || [],s.airport_ident).length ? maintenanceLeads(data?.sites || [],s.airport_ident).map(base=><span className="stop-maintenance-badge" key={base.id} style={{borderColor:colors[base.match],color:colors[base.match]}}>{base.company_name} · {base.name}<br/>{data?.type_code ? labels[base.match] : 'Aircraft type unknown — capability not evaluated'}</span>) : <span className="map-note">No maintenance sites linked in the catalogue</span>}</span>
           </button>)}</div>
         </section>
       </section>

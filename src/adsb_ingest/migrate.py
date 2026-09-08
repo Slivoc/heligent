@@ -25,6 +25,7 @@ MIGRATIONS = (
     "phase17.sql",
     "phase18.sql",
     "phase19.sql",
+    "phase20.sql",
 )
 
 

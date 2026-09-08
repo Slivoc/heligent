@@ -8,7 +8,8 @@ class IdentityTests(unittest.TestCase):
     def test_validation(self):
         p=dict(address='4082A2',registration='g-wsas',valid_from='2026-08-14',source_url='https://example.test/evidence',notes='Checked')
         self.assertEqual(validate(p)['registration'],'G-WSAS')
-        for change in [dict(address='~4082a2'),dict(registration=''),dict(valid_to='2020-01-01'),dict(source_url='javascript:alert(1)'),dict(notes=''),dict(type_code='EC45/EC35')]:
+        self.assertEqual(validate({**p,'source_url':'','notes':''})['source_url'],'')
+        for change in [dict(address='~4082a2'),dict(registration=''),dict(valid_to='2020-01-01'),dict(source_url='javascript:alert(1)'),dict(type_code='EC45/EC35')]:
             with self.assertRaises(ValueError): validate({**p,**change})
 
     def test_mutations_require_analyst_and_csrf(self):

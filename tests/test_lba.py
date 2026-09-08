@@ -16,6 +16,28 @@ def fixture():
 
 
 class LbaTests(unittest.TestCase):
+    def test_import_confirmation_and_invalid_selection(self):
+        from adsb_ingest.lba_import import import_selection
+        for payload in [None,{}, {'confirmed':True,'preview_id':'not-a-uuid'}, {'confirmed':True,'preview_id':'00000000-0000-0000-0000-000000000001','organisation_index':True}]:
+            with self.assertRaises(ValueError): import_selection(None,payload,'analyst@example.com')
+
+    def test_import_role_and_csrf(self):
+        from adsb_ingest.webapp import create_app
+        from test_webapp import FakeAdminStore, FakeAnalyticsStore, FakeNaturalLanguage, FakeAccessStore
+        args=dict(start_worker=False,store=FakeAdminStore(),analytics_store=FakeAnalyticsStore(),natural_language=FakeNaturalLanguage())
+        with patch.dict('os.environ', {'HELIGENT_AUTH_PROXY_SECRET':'s'*40,'HELIGENT_BOOTSTRAP_ADMIN_EMAILS':''}):
+            client=create_app(**args,access_store=FakeAccessStore(),auth_mode='NGROK').test_client()
+            h={'X-Heligent-Proxy-Secret':'s'*40,'X-Heligent-Auth-Email':'viewer@example.com','X-Requested-With':'HeligentAdmin'}
+            with patch('adsb_ingest.lba_import.import_selection',return_value={'batch_id':1}) as save:
+                self.assertEqual(client.post('/api/tools/lba/import',headers=h,json={}).status_code,403)
+                h['X-Heligent-Auth-Email']='analyst@example.com'
+                self.assertEqual(client.post('/api/tools/lba/import',headers={k:v for k,v in h.items() if k!='X-Requested-With'},json={}).status_code,403)
+                save.assert_not_called()
+                self.assertEqual(client.post('/api/tools/lba/import',headers=h,json={}).status_code,200)
+                self.assertEqual(save.call_args.args[-1],'analyst@example.com')
+        demo=create_app(**args,public_demo=True).test_client()
+        self.assertEqual(demo.get('/api/tools/lba/history').status_code,404)
+
     def test_preserves_site_rating_scope(self):
         p = parse_directory(fixture())
         o = p['organisations'][0]
@@ -39,7 +61,7 @@ class LbaTests(unittest.TestCase):
             app = create_app(start_worker=False,store=FakeAdminStore(),analytics_store=FakeAnalyticsStore(),natural_language=FakeNaturalLanguage(),access_store=FakeAccessStore(),auth_mode='NGROK')
             client = app.test_client()
             h = {'X-Heligent-Proxy-Secret':'s'*40,'X-Heligent-Auth-Email':'viewer@example.com','X-Requested-With':'HeligentAdmin'}
-            with patch('adsb_ingest.lba.fetch_preview',return_value={'mode':'PREVIEW_ONLY'}) as fetch:
+            with patch('adsb_ingest.lba.fetch_preview',return_value={'mode':'PREVIEW_ONLY'}) as fetch, patch('adsb_ingest.lba_import.stage_preview',return_value={'preview_id':'fixture'}):
                 self.assertEqual(client.post('/api/tools/lba/preview',headers=h,json={'query':'ADAC'}).status_code,403)
                 h['X-Heligent-Auth-Email']='analyst@example.com'
                 self.assertEqual(client.post('/api/tools/lba/preview',headers={k:v for k,v in h.items() if k!='X-Requested-With'},json={'query':'ADAC'}).status_code,403)
