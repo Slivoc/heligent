@@ -1,6 +1,7 @@
 "use client";
 import { FormEvent, useEffect, useState } from "react";
 import "./capability-mappings.css";
+import { CapabilityWording } from './CapabilityWording';
 
 type Summary = { id: number; company_name: string; site_name: string | null; approval_number: string; approval_status: string; model: string | null; aircraft_type_code: string | null; limitation: string | null; mapping_count: number };
 type Mapping = { id: number; aircraft_type_code: string; match_level: string; variant_scope: string; source_url: string; notes: string; revision: number; active: boolean; stale: boolean; reviewed_by: string; reviewed_at: string; evidence_snapshot: Record<string, unknown> };
@@ -69,13 +70,13 @@ export function CapabilityMappings({ initialCapabilityId = null }: { initialCapa
     <div className="capability-review-layout">
       <section className="capability-results"><h2>Imported aircraft capabilities</h2>
         {!results && <p>Loading capabilities…</p>}{results?.rows.length === 0 && <p>No matching active aircraft capabilities.</p>}
-        {results?.rows.map(c => <button type="button" key={c.id} disabled={busy} aria-pressed={selection.id === c.id} onClick={() => open(c.id)}><strong>{c.company_name}</strong><span>{c.site_name || "Company-wide scope"} · {c.approval_number} · {c.approval_status}</span><p>{c.limitation || c.model || c.aircraft_type_code || "No model text"}</p><small>{c.mapping_count} active mappings</small></button>)}
+        {results?.rows.map(c => <button type="button" key={c.id} disabled={busy} aria-pressed={selection.id === c.id} onClick={() => open(c.id)}><strong>{c.company_name}</strong><span>{c.site_name || "Company-wide scope"} · {c.approval_number} · {c.approval_status}</span><CapabilityWording capability={c} /><small>{c.mapping_count} active mappings</small></button>)}
         <div className="capability-pagination"><button disabled={busy || search.offset === 0} onClick={() => { setResults(null); setSearch(s => ({ ...s, offset: Math.max(0, s.offset - 50) })); }}>Previous</button><span>Page {search.offset / 50 + 1}</span><button disabled={busy || !results?.has_more} onClick={() => { setResults(null); setSearch(s => ({ ...s, offset: s.offset + 50 })); }}>Next</button></div>
       </section>
       <section className="capability-editor">
         {!detail ? <p>{selection.id ? "Loading selected capability…" : "Select a capability to review its type mappings."}</p> : <>
           <h2>{detail.capability.company_name}</h2><p>{detail.capability.site_name || "Company-wide scope — not confirmed at individual bases"} · {detail.capability.approval_number} · {detail.capability.approval_status}</p>
-          <h3>Original capability wording</h3><blockquote>{detail.capability.limitation || detail.capability.model || "No descriptive wording supplied"}</blockquote>
+          <h3>Original capability wording</h3><CapabilityWording capability={detail.capability} />
           <p>Base maintenance: {detail.capability.is_base_maintenance ? "recorded" : "not recorded"} · Line maintenance: {detail.capability.is_line_maintenance ? "recorded" : "not recorded"}</p>
           <p className="map-note">These flags and limitations remain in force. A mapping is not proof of suitability for a particular check or aircraft variant.</p>
           <button type="button" disabled={busy} onClick={() => open(detail.capability.id)}>Reload capability (discard unsaved edits)</button>
