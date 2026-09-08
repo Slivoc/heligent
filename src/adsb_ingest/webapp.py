@@ -45,6 +45,8 @@ PUBLIC_DEMO_ENDPOINTS = frozenset(
     }
 )
 MUTATION_MINIMUM_ROLE = {
+    "identity_preview": "ANALYST",
+    "identity_assign": "ANALYST",
     "capability_mapping_save": "ANALYST",
     "lba_preview": "ANALYST",
     "maintenance_add": "ANALYST",
@@ -244,6 +246,7 @@ def create_app(
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase16.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase17.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase18.sql')
+        admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase19.sql')
     query_service = natural_language or SemanticNaturalLanguageAnalytics(analytics)
     worker = SequentialIngestionWorker(
         admin_store,
@@ -639,6 +642,25 @@ def create_app(
     @app.get('/api/maintenance/watches')
     def maintenance_watches():
         return jsonify(_json_ready(MaintenanceStore(admin_store).watches()))
+
+    @app.get('/api/tools/unidentified')
+    def unidentified_hexes():
+        require_access_role('VIEWER')
+        from .unidentified import unidentified_activity
+        return jsonify(_json_ready(unidentified_activity(admin_store,
+            request.args.get('from'), request.args.get('to'), int(request.args.get('offset','0')))))
+
+    @app.post('/api/tools/identity/preview')
+    def identity_preview():
+        from .identity import assign_identity
+        actor = require_access_role('ANALYST')
+        return jsonify(_json_ready(assign_identity(admin_store, request.get_json(), actor.email)))
+
+    @app.post('/api/tools/identity/assign')
+    def identity_assign():
+        from .identity import assign_identity
+        actor = require_access_role('ANALYST')
+        return jsonify(_json_ready(assign_identity(admin_store, request.get_json(), actor.email, save=True)))
 
     @app.post('/api/tools/lba/preview')
     def lba_preview():

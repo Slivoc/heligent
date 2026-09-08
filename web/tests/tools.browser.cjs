@@ -12,6 +12,13 @@ const fs = require('node:fs/promises');
     await page.route('**/api/**', async r=>{
       const path=new URL(r.request().url()).pathname;
       if(path==='/api/auth/session') return r.fulfill({json:{user:{role:'ANALYST'}}});
+      if(path==='/api/tools/identity/preview') return r.fulfill({json:{token:'fixture-token',affected_days:3,first_day:'2026-09-01',last_day:'2026-09-05'}});
+      if(path==='/api/tools/identity/assign') {
+        assert.equal(r.request().postDataJSON().token,'fixture-token');
+        assert.equal(r.request().postDataJSON().registration,'G-WSAS');
+        return r.fulfill({json:{saved:true,message:'Identity saved. Reload the Stops map.'}});
+      }
+      if(path==='/api/tools/unidentified') return r.fulfill({json:{from:'2026-09-01',to:'2026-09-07',processed_days:6,expected_days:7,has_more:false,rows:[{address:'4082a2',days:3,first_day:'2026-09-01',last_day:'2026-09-05',positions:1200,hours:2.5,types:[],callsigns:['GWSAS'],current_registration:null}]}});
       if(path==='/api/tools/lba/preview') {
         assert.equal(r.request().method(),'POST');
         assert.equal(r.request().postDataJSON().query,'ADAC');
@@ -36,6 +43,27 @@ const fs = require('node:fs/promises');
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     await page.screenshot({path:'tmp/map-browser-results/tools-mobile.png',fullPage:true});
+    await page.getByRole('button',{name:'Hexes without tail numbers',exact:true}).click();
+    await page.getByText('4082A2',{exact:true}).waitFor();
+    await page.getByText('GWSAS',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'Next',exact:true}).isDisabled(),true);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    await page.screenshot({path:'tmp/map-browser-results/unidentified-mobile.png',fullPage:true});
+    await page.setViewportSize({width:1400,height:1000});
+    await page.screenshot({path:'tmp/map-browser-results/unidentified-desktop.png',fullPage:true});
+    await page.getByRole('button',{name:'Assign tail number',exact:true}).click();
+    await page.getByLabel('Tail number',{exact:true}).fill('G-WSAS');
+    await page.getByLabel('Valid from (UTC)',{exact:true}).fill('2026-08-14');
+    await page.getByLabel('Evidence URL',{exact:true}).fill('https://example.test/identity');
+    await page.getByLabel('Evidence notes',{exact:true}).fill('Verified registration for this period');
+    await page.getByRole('button',{name:'Preview affected records'}).click();
+    await page.getByRole('button',{name:'Confirm assignment'}).waitFor();
+    await page.screenshot({path:'tmp/map-browser-results/identity-desktop.png',fullPage:true});
+    await page.getByLabel('ICAO type (optional)',{exact:true}).fill('EC45');
+    assert.equal(await page.getByRole('button',{name:'Confirm assignment'}).count(),0);
+    await page.getByRole('button',{name:'Preview affected records'}).click();
+    await page.getByRole('button',{name:'Confirm assignment'}).click();
+    await page.getByRole('status').filter({hasText:'Identity saved'}).waitFor();
     assert.deepEqual(errors,[]);
     console.log('Tools browser checks passed: navigation, preview, scope filter, download, mobile.');
   } finally {await browser.close();}

@@ -49,6 +49,8 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase17.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase17.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase18.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase19.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase19.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase18.sql")
         # Application startup replays every idempotent migration. Phase 9 adds
         # company columns, so Phase 8 views must remain stable on the next run.
@@ -165,6 +167,46 @@ class PostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(map_data(self.store,empty['id'],'2026-08-20','2026-08-20')['stops'],[])
         with self.assertRaises(ValueError):
             map_data(self.store,999999,'2026-08-20','2026-08-20')
+
+    def test_zzz_identity_assignment(self):
+        from adsb_ingest.identity import assign_identity
+        payload=dict(address='abcdef',registration='G-TEST',type_code='H145',valid_from='2026-08-20',valid_to='2026-08-20',source_url='https://example.test/registry',notes='Verified identity')
+        with self.store.connect() as c:
+            c.execute("UPDATE aircraft_day SET registration=NULL WHERE address='abcdef'")
+        p=assign_identity(self.store,payload,'analyst@example.com')
+        self.assertEqual(p['affected_days'],1)
+        with self.assertRaises(ValueError): assign_identity(self.store,{**payload,'token':'old'},'analyst@example.com',True)
+        result=assign_identity(self.store,{**payload,'token':p['token']},'analyst@example.com',True)
+        self.assertTrue(result['saved'])
+        with self.store.connect() as c:
+            self.assertEqual(c.execute("SELECT registration FROM aircraft_day WHERE address='abcdef'").fetchone()[0],'G-TEST')
+            audit=c.execute("SELECT previous_rows,reviewed_by FROM aircraft_identity_review WHERE address='abcdef'").fetchone()
+            self.assertIsNone(audit[0][0]['registration'])
+            self.assertEqual(audit[1],'analyst@example.com')
+        with self.assertRaises(ValueError): assign_identity(self.store,payload,'analyst@example.com')
+
+    def test_unidentified_activity(self):
+        from adsb_ingest.unidentified import unidentified_activity
+        def restore_identity():
+            with self.store.connect() as c:
+                c.execute("UPDATE aircraft_day SET registration='G-TEST' WHERE address='abcdef'")
+        self.addCleanup(restore_identity)
+        catalog, discovery, summary = self.fixture()
+        self.store.upsert_airports(catalog)
+        dataset = self.store.upsert_dataset(discovery)
+        job = self.store.start_job(dataset, 'PROCESS')
+        self.store.set_processing(dataset)
+        self.store.load_summaries(dataset, job, iter([summary]))
+        with self.store.connect() as c:
+            c.execute("UPDATE aircraft_day SET registration=' ' WHERE dataset_day_id=%s AND address='abcdef'", (dataset,))
+        result = unidentified_activity(self.store, '2026-08-20', '2026-08-20')
+        row = next(r for r in result['rows'] if r['address']=='abcdef')
+        self.assertGreater(row['positions'], 0)
+        self.assertEqual(row['days'], 1)
+        self.assertIn('TEST1', row['callsigns'])
+        self.assertEqual(row['current_registration'], 'G-TEST')
+        self.assertFalse(result['has_more'])
+        with self.assertRaises(ValueError): unidentified_activity(self.store,'2026-08-01','2026-09-05')
 
     def test_capability_mapping_audit_and_stale_scope(self):
         from adsb_ingest.capability_mappings import CapabilityMappingStore

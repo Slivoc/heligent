@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from 'react';
 import './tools.css';
+import { Unidentified } from './Unidentified';
 
 type Preview = { query: string; fetched_at: string; source_url: string; source_sha256: string; page: string; truncated: boolean; organisations: { name: string; approval: string; sites: { street: string; locality: string; ratings: { wording: string; models: string[] }[] }[] }[] };
 
@@ -36,7 +37,8 @@ export function Tools({ onMappings, initialLba = false }: { onMappings: () => vo
     <p className="eyebrow">Tools · Data stewardship</p><h1>Data imports & review</h1>
     <p>A shared home for source adapters, repeatable updates and data-quality tools.</p>
     <nav aria-label="Tools sections"><button onClick={() => setTab('imports')} aria-pressed={tab === 'imports'}>Data imports</button><button onClick={onMappings}>Capability mappings</button></nav>
-    {tab === 'imports' ? <>
+    <button onClick={() => setTab('unidentified')} aria-pressed={tab === 'unidentified'}>Hexes without tail numbers</button>
+    {tab === 'unidentified' ? <Unidentified /> : tab === 'imports' ? <>
       <section className="tools-card"><span className="eyebrow">First adapter · Preview available</span><h2>LBA technical organisations</h2><p>Inspect published approvals, operating sites, ratings and model wording. Start with ADAC Heliservice.</p><button onClick={() => setTab('lba')}>Open LBA preview</button></section>
       <section className="tools-card"><h2>Import history</h2><p>No persistent import-run history is implemented in this first pass. LBA previews do not write to the catalogue. Download a preview to retain it.</p><p>Next: saved staging runs, duplicate/conflict review, approved imports and repeat-import comparisons.</p></section>
     </> : <section>
