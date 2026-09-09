@@ -2,7 +2,7 @@
 from datetime import date, timedelta
 
 from psycopg.rows import dict_row
-from .capability_mappings import evidence_snapshot
+from .capability_mappings import effective_mappings, model_phrase, normalize_phrase
 
 
 def date_window(start, end, latest):
@@ -91,14 +91,18 @@ def map_data(store, watch_id, start=None, end=None):
             FROM approval_capability ac WHERE ac.active AND ac.regulatory_approval_id=ANY(%s)
             ORDER BY ac.id LIMIT 20001''', ([a['id'] for a in approvals],)).fetchall()
         mappings = c.execute('''SELECT * FROM capability_aircraft_mapping
-            WHERE active AND aircraft_type_code=%s AND capability_id=ANY(%s)''',
+            WHERE aircraft_type_code=%s AND capability_id=ANY(%s)''',
             (type_code,[cap['capability_id'] for cap in caps[:20000]])).fetchall()
+        shared = c.execute('''SELECT * FROM capability_phrase_mapping
+            WHERE active AND aircraft_type_code=%s AND normalized_phrase=ANY(%s)''',
+            (type_code,list({normalize_phrase(model_phrase(cap)) for cap in caps[:20000]}))).fetchall()
     by_capability = {m['capability_id']:m for m in mappings}
+    by_phrase = {m['normalized_phrase']:m for m in shared}
     for cap in caps[:20000]:
         mapping = by_capability.get(cap['capability_id'])
-        if mapping:
-            mapping['stale'] = mapping['evidence_snapshot'] != evidence_snapshot(cap)
-        cap['mappings'] = [mapping] if mapping else []
+        phrase_mapping = by_phrase.get(normalize_phrase(model_phrase(cap)))
+        cap['mappings'] = effective_mappings(cap, [mapping] if mapping else [],
+            [phrase_mapping] if phrase_mapping else [])
     by_company = {}
     by_approval = {}
     for approval in approvals:

@@ -48,6 +48,7 @@ MUTATION_MINIMUM_ROLE = {
     "identity_preview": "ANALYST",
     "identity_assign": "ANALYST",
     "capability_mapping_save": "ANALYST",
+    "capability_phrase_save": "ANALYST",
     "lba_preview": "ANALYST",
     "lba_import": "ANALYST",
     "maintenance_add": "ANALYST",
@@ -249,6 +250,7 @@ def create_app(
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase18.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase19.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase20.sql')
+        admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase21.sql')
     query_service = natural_language or SemanticNaturalLanguageAnalytics(analytics)
     worker = SequentialIngestionWorker(
         admin_store,
@@ -700,6 +702,12 @@ def create_app(
     def capability_mapping_save(capability_id):
         actor = require_access_role('ANALYST')
         return jsonify(_json_ready(CapabilityMappingStore(admin_store).save(
+            capability_id, request.get_json() or {}, actor.email)))
+
+    @app.post('/api/capability-mappings/<int:capability_id>/shared')
+    def capability_phrase_save(capability_id):
+        actor = require_access_role('ANALYST')
+        return jsonify(_json_ready(CapabilityMappingStore(admin_store).save_shared(
             capability_id, request.get_json() or {}, actor.email)))
 
     @app.post('/api/maintenance/watches')

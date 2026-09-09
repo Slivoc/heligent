@@ -1,4 +1,4 @@
-"""Audited interpretations of a particular imported capability, not global aliases."""
+"""Audited site-specific reviews and reusable exact aircraft wording mappings."""
 import re
 from urllib.parse import urlparse
 
@@ -13,6 +13,26 @@ SCOPE_FIELDS = ('regulatory_approval_id', 'company_site_id', 'capability_kind',
 
 def evidence_snapshot(capability):
     return {key: capability.get(key) for key in SCOPE_FIELDS}
+
+
+def model_phrase(capability):
+    # Legacy imports put the entire wording in limitation. Never substring-match
+    # that text or strip variant/scope qualifiers to manufacture a wider match.
+    return str(capability.get('model') or '').strip() or str(capability.get('limitation') or '').strip()
+
+
+def normalize_phrase(phrase):
+    return ' '.join(phrase.lower().split())
+
+
+def effective_mappings(capability, local, shared):
+    """A local record wins, even when withdrawn or stale."""
+    selected = {m['aircraft_type_code']: dict(m, origin='SHARED', stale=False)
+                for m in shared if m['normalized_phrase'] == normalize_phrase(model_phrase(capability))}
+    for m in local:
+        selected[m['aircraft_type_code']] = dict(m, origin='LOCAL',
+            stale=m['evidence_snapshot'] != evidence_snapshot(capability))
+    return list(selected.values())
 
 
 def mapping_input(payload):
@@ -62,6 +82,12 @@ class CapabilityMappingStore:
                   AND (s.id IS NULL OR s.active)
                   AND concat_ws(' ',co.name,s.name,r.approval_number,ac.model,ac.aircraft_type_code,ac.limitation) ILIKE %s
                 ORDER BY co.name,ac.id LIMIT 51 OFFSET %s''', (pattern,offset)).fetchall()
+            shared = c.execute('''SELECT normalized_phrase,count(*) AS count FROM capability_phrase_mapping
+                WHERE active AND normalized_phrase=ANY(%s) GROUP BY normalized_phrase''',
+                (list({normalize_phrase(model_phrase(row)) for row in rows[:50]}),)).fetchall()
+            counts = {row['normalized_phrase']:row['count'] for row in shared}
+            for row in rows[:50]:
+                row['shared_mapping_count'] = counts.get(normalize_phrase(model_phrase(row)), 0)
             return {'rows':rows[:50], 'has_more':len(rows)>50, 'offset':offset}
 
     @staticmethod
@@ -87,8 +113,47 @@ class CapabilityMappingStore:
             history = c.execute('''SELECT h.snapshot,h.recorded_at FROM capability_mapping_revision h
                 JOIN capability_aircraft_mapping m ON m.id=h.mapping_id
                 WHERE m.capability_id=%s ORDER BY h.id DESC LIMIT 101''', (capability_id,)).fetchall()
+            phrase = model_phrase(cap)
+            shared = c.execute('SELECT * FROM capability_phrase_mapping WHERE normalized_phrase=%s ORDER BY aircraft_type_code', (normalize_phrase(phrase),)).fetchall()
+            shared_history = c.execute('''SELECT h.snapshot,h.recorded_at FROM capability_phrase_revision h
+                JOIN capability_phrase_mapping m ON m.id=h.mapping_id
+                WHERE m.normalized_phrase=%s ORDER BY h.id DESC LIMIT 101''', (normalize_phrase(phrase),)).fetchall()
             return {'capability':cap,'source_snapshot':evidence_snapshot(cap),
-                    'mappings':rows,'history':history[:100],'history_truncated':len(history)>100}
+                    'mappings':rows,'history':history[:100],'history_truncated':len(history)>100,
+                    'model_phrase':phrase, 'shared_mappings':shared,
+                    'shared_history':shared_history[:100], 'shared_history_truncated':len(shared_history)>100}
+
+    def save_shared(self, capability_id, payload, actor):
+        code,level,variant,source,notes,revision,active = mapping_input(payload)
+        if payload.get('shared_confirmed') is not True:
+            raise ValueError('Confirm that this review applies to all entries with this exact wording')
+        with self.store.connect() as c:
+            c.row_factory = dict_row
+            c.execute("SET LOCAL statement_timeout = '10s'")
+            cap = self._capability(c, capability_id, lock=True)
+            if cap['capability_kind'] != 'AIRCRAFT' or not cap['active'] or not cap['company_active'] or cap['site_active'] is False:
+                raise ValueError('Only active aircraft capabilities can be mapped')
+            if payload.get('evidence_snapshot') != evidence_snapshot(cap):
+                raise ValueError('Imported capability changed; reload and review the new wording')
+            phrase = model_phrase(cap)
+            normalized = normalize_phrase(phrase)
+            if not normalized or len(normalized) > 2000:
+                raise ValueError('Shared wording must contain 1–2000 characters')
+            # Different sites may concurrently create the same phrase/type rule.
+            c.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))', (normalized,))
+            old = c.execute('SELECT * FROM capability_phrase_mapping WHERE normalized_phrase=%s AND aircraft_type_code=%s FOR UPDATE', (normalized,code)).fetchone()
+            if revision != (old['revision'] if old else 0):
+                raise ValueError('Shared mapping changed since it was opened; reload before saving')
+            if old:
+                c.execute('INSERT INTO capability_phrase_revision(mapping_id,snapshot) SELECT id,to_jsonb(m) FROM capability_phrase_mapping m WHERE id=%s', (old['id'],))
+            return c.execute('''INSERT INTO capability_phrase_mapping
+                (model_phrase,normalized_phrase,aircraft_type_code,match_level,variant_scope,source_url,notes,active,reviewed_by)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT(normalized_phrase,aircraft_type_code) DO UPDATE SET
+                match_level=excluded.match_level,variant_scope=excluded.variant_scope,
+                source_url=excluded.source_url,notes=excluded.notes,active=excluded.active,
+                reviewed_by=excluded.reviewed_by,reviewed_at=now(),revision=capability_phrase_mapping.revision+1
+                RETURNING *''', (phrase,normalized,code,level,variant,source,notes,active,actor)).fetchone()
 
     def save(self, capability_id, payload, actor):
         code,level,variant,source,notes,revision,active = mapping_input(payload)

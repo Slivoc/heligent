@@ -51,6 +51,8 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase18.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase19.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase20.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase21.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase21.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase20.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase19.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase18.sql")
@@ -163,6 +165,28 @@ class PostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(b['match'],'COMPANY_MATCH')
         self.assertEqual(b['location_precision'],'UNLOCATED')
         self.assertEqual(len(b['capabilities']),1) # no other site's capability leaks
+        # Exercise the actual map query path, not only the pure matcher.
+        from adsb_ingest.capability_mappings import CapabilityMappingStore
+        reviews = CapabilityMappingStore(self.store)
+        with self.store.connect() as c:
+            c.execute("UPDATE approval_capability SET aircraft_type_code=NULL,model='Map test shared aircraft' WHERE regulatory_approval_id=%s", (approval,))
+            cap_id = c.execute("SELECT id FROM approval_capability WHERE regulatory_approval_id=%s AND company_site_id=%s", (approval,first)).fetchone()[0]
+        payload = dict(aircraft_type_code='H145',match_level='REVIEWED_TYPE',type_wide_confirmed=True,
+            source_url='https://example.test/map-scope',notes='Shared map test',revision=0,
+            shared_confirmed=True,evidence_snapshot=reviews.detail(cap_id)['source_snapshot'])
+        reviews.save_shared(cap_id, payload, 'map@example.com')
+        mapped = map_data(self.store,watch['id'],'2026-08-20','2026-08-20')
+        a = next(s for s in mapped['sites'] if s['id']==first)
+        b = next(s for s in mapped['sites'] if s['id']==second)
+        self.assertEqual(a['match'], 'SITE_MATCH')
+        self.assertEqual(b['match'], 'COMPANY_MATCH')
+        self.assertTrue(all(cap['mappings'][0]['origin']=='SHARED' for cap in a['capabilities']))
+        reviews.save(cap_id, {**payload,'active':False}, 'map@example.com')
+        mapped = map_data(self.store,watch['id'],'2026-08-20','2026-08-20')
+        a = next(s for s in mapped['sites'] if s['id']==first)
+        site_cap = next(cap for cap in a['capabilities'] if cap['capability_id']==cap_id)
+        self.assertEqual(site_cap['match'], 'NO_RECORDED_MATCH')
+        self.assertEqual(site_cap['mappings'][0]['origin'], 'LOCAL')
         with self.store.connect() as c:
             self.assertEqual(c.execute("SELECT count(*) FROM information_schema.columns WHERE table_name='aircraft_flight_segment' AND column_name='track'").fetchone()[0],0)
         empty = MaintenanceStore(self.store).add({'registration':'G-EMPTY'},'map@example.com')
@@ -258,6 +282,38 @@ class PostgresIntegrationTests(unittest.TestCase):
             c.execute("UPDATE aircraft_day SET type_code='H145' WHERE address='abcdef'")
         self.assertFalse(result['has_more'])
         with self.assertRaises(ValueError): unidentified_activity(self.store,'2026-08-01','2026-09-05')
+
+    def test_capability_shared_mapping_reuse_and_audit(self):
+        from adsb_ingest.capability_mappings import CapabilityMappingStore, effective_mappings
+        mappings = CapabilityMappingStore(self.store)
+        with self.store.connect() as c:
+            company = c.execute("INSERT INTO company(company_key,name) VALUES ('shared-review','Shared MRO') RETURNING id").fetchone()[0]
+            approval = c.execute("INSERT INTO regulatory_approval(company_id,authority_code,approval_type,approval_number) VALUES (%s,'TEST','PART_145','SHARED.145') RETURNING id", (company,)).fetchone()[0]
+            c.execute("INSERT INTO company_data_source(code,name) VALUES ('SHARED_TEST','Shared test')")
+            caps = [c.execute("INSERT INTO approval_capability(regulatory_approval_id,source_code,capability_key,capability_kind,model,limitation,is_base_maintenance,is_line_maintenance) VALUES (%s,'SHARED_TEST',%s,'AIRCRAFT',%s,%s,%s,true) RETURNING id", (approval,str(i),phrase,scope,base)).fetchone()[0]
+                    for i,phrase,scope,base in [(1,'Airbus EC135','Base and line',True),(2,'AIRBUS  EC135','Line only',False)]]
+        first = mappings.detail(caps[0])
+        payload = dict(aircraft_type_code='EC35', match_level='POSSIBLE_FAMILY', source_url='https://example.test/approval', notes='Shared phrase review', revision=0, active=True, evidence_snapshot=first['source_snapshot'], shared_confirmed=True)
+        with self.assertRaises(ValueError): mappings.save_shared(caps[0], {**payload,'shared_confirmed':False}, 'analyst')
+        saved = mappings.save_shared(caps[0], payload, 'analyst')
+        second = mappings.detail(caps[1])
+        self.assertEqual(second['shared_mappings'][0]['id'], saved['id'])
+        self.assertFalse(second['capability']['is_base_maintenance'])
+        self.assertEqual(mappings.search('Shared MRO')['rows'][0]['shared_mapping_count'], 1)
+        with self.assertRaises(ValueError): mappings.save_shared(caps[1], {**payload,'evidence_snapshot':second['source_snapshot']}, 'other')
+        withdrawn = mappings.save_shared(caps[1], {**payload,'revision':1,'active':False,'evidence_snapshot':second['source_snapshot']}, 'other')
+        self.assertEqual(withdrawn['revision'], 2)
+        self.assertEqual(mappings.detail(caps[0])['shared_history'][0]['snapshot']['reviewed_by'], 'analyst')
+        mappings.save_shared(caps[0], {**payload,'revision':2}, 'analyst')
+        mappings.save(caps[1], {**payload,'active':False,'evidence_snapshot':second['source_snapshot']}, 'analyst')
+        second = mappings.detail(caps[1])
+        chosen = effective_mappings(second['capability'], second['mappings'], second['shared_mappings'])
+        self.assertEqual(chosen[0]['origin'], 'LOCAL')
+        self.assertFalse(chosen[0]['active'])
+        with self.store.connect() as c:
+            c.execute("UPDATE approval_capability SET model='EC135 restricted' WHERE id=%s", (caps[0],))
+        self.assertEqual(mappings.detail(caps[0])['shared_mappings'], [])
+        with self.assertRaises(ValueError): mappings.save_shared(caps[0], {**payload,'revision':3}, 'analyst')
 
     def test_capability_mapping_audit_and_stale_scope(self):
         from adsb_ingest.capability_mappings import CapabilityMappingStore

@@ -9,15 +9,25 @@ Search for a company, approval number or uploaded wording (for example `BK117`).
 - A type-wide reviewed mapping requires explicit confirmation. It produces a site match only for a site-specific capability; company-wide records remain company-wide.
 - Approval status and validity dates are checked live. A match does not establish the required check, tooling, availability, historical approval or that maintenance occurred.
 
-For G-LZZI, find the relevant imported MBB-BK117 capability and add EC45 as a **possible family** mapping with supporting evidence. Do not infer blanket approval from the family name alone. This does not create a global BK117 alias or automatically map unrelated sites.
+## Map a phrase once
 
-Analysts and administrators may save mappings; viewers can inspect them. Edits retain previous revisions, reviewer and time. Uncheck Active to withdraw a mapping rather than delete its history. Concurrent edits are rejected and require a reload. Changes to the imported capability's model, limitation, rating, site or maintenance scope make its mapping stale until re-reviewed. Importers must retain stable capability IDs; replacement records require new reviews.
+The default **All entries with this exact wording** option saves a shared rule. For example, map the displayed EC135 model phrase to EC35 once and all current and future entries with that same phrase can use it. Only case and whitespace are ignored: different names, punctuation, variants and broader family wording need their own review. Nothing is seeded or guessed automatically.
+
+The aircraft model field is used when available (including LBA imports); otherwise the full original limitation text is used for older imports. The exact phrase is shown before saving. Confirm the shared scope explicitly. Shared rules have their own edit/withdraw controls and revision history, available from any capability with that phrase.
+
+Each facility retains its own base/line flags, limitations, approval validity and site/company scope. Sharing an aircraft-name interpretation never copies another site's approval. Broad BK117 wording should remain **Possible family**, and restricted variants remain amber. A shared rule is not a finding that a particular check can be performed.
+
+Choose **This capability only (override)** for an exception. A site-specific record takes precedence for the same ICAO code, even when stale or withdrawn; a shared rule cannot silently reactivate it. An exact imported ICAO code remains independent source evidence. Existing site-specific reviews are not automatically converted into shared rules.
+
+For G-LZZI, find the relevant imported MBB-BK117 capability and add EC45 as a **possible family** mapping with supporting evidence. Do not infer blanket approval from the family name alone.
+
+Analysts and administrators may save mappings; viewers can inspect them. Edits retain previous revisions, reviewer and time. Uncheck Active to withdraw a mapping rather than delete its history. Concurrent edits are rejected and require a reload. Changes to the imported capability's model, limitation, rating, site or maintenance scope make its site-specific mapping stale until re-reviewed. Shared rules stop applying when the selected wording changes; unchanged aircraft wording can still be interpreted under the site's current limitations. Importers must retain stable capability IDs for site-specific reviews.
 
 Reload the Stops map after saving. Its type-match filter includes possible family matches, but not stale mappings. Missing matches are missing evidence, not evidence of incapability.
 
 ## Deployment
 
-Schema phase18 adds `capability_aircraft_mapping` and `capability_mapping_revision`; it is registered with `heligent-migrate` and application startup. Include the generated `web_static` assets in your commit, pull on the VPS, and follow the existing migration/restart procedure. Take the usual database backup first. No Pi change, raw-file download or aircraft-data reprocessing is required. No mappings are automatically seeded.
+Schema phase21 adds `capability_phrase_mapping` and `capability_phrase_revision` alongside the phase18 site-specific tables. It is registered with `heligent-migrate` and application startup. Include the generated `web_static` assets in your commit, pull on the VPS, and follow the existing migration/restart procedure. Take the usual database backup first. No Pi change, LBA reimport, raw-file download or aircraft-data reprocessing is required. No mappings are automatically seeded.
 
 ## LBA / ADAC ingestion assessment
 

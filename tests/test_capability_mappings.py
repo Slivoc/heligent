@@ -1,11 +1,37 @@
 import unittest
 from unittest.mock import patch
 from datetime import date
-from adsb_ingest.capability_mappings import mapping_input
+from adsb_ingest.capability_mappings import mapping_input, model_phrase, normalize_phrase, effective_mappings, evidence_snapshot
 from adsb_ingest.maintenance_map import capability_match
 
 
 class CapabilityMappingTests(unittest.TestCase):
+    def test_shared_phrase_exactness_and_local_precedence(self):
+        cap = dict(model='  Airbus  EC135 ', limitation='Line only', capability_kind='AIRCRAFT',
+                   company_site_id=1, approval_status='VALID', is_line_maintenance=True)
+        shared = dict(normalized_phrase='airbus ec135', aircraft_type_code='EC35', active=True,
+                      match_level='REVIEWED_TYPE', variant_scope='')
+        self.assertEqual(normalize_phrase(model_phrase(cap)), 'airbus ec135')
+        self.assertEqual(model_phrase({'model':' ', 'limitation':'MBB-BK117 SERIES'}), 'MBB-BK117 SERIES')
+        chosen = effective_mappings(cap, [], [shared])
+        self.assertEqual(chosen[0]['origin'], 'SHARED')
+        self.assertEqual(capability_match({**cap,'mappings':chosen}, 'EC35', date.today()), 'SITE_MATCH')
+        self.assertEqual(effective_mappings({**cap,'model':'Airbus EC135 variant'}, [], [shared]), [])
+        self.assertEqual(effective_mappings({**cap,'model':'Airbus EC135 / EC145'}, [], [shared]), [])
+        local = dict(shared, evidence_snapshot=evidence_snapshot(cap), active=False)
+        chosen = effective_mappings(cap, [local], [shared])
+        self.assertEqual(chosen[0]['origin'], 'LOCAL')
+        self.assertEqual(capability_match({**cap,'mappings':chosen}, 'EC35', date.today()), 'NO_RECORDED_MATCH')
+        changed = {**cap,'limitation':'Restricted line maintenance'}
+        chosen = effective_mappings(changed, [{**local,'active':True}], [shared])
+        self.assertTrue(chosen[0]['stale'])
+        self.assertEqual(capability_match({**changed,'mappings':chosen}, 'EC35', date.today()), 'STALE_MAPPING')
+        for changes, expected in [({'company_site_id':None},'COMPANY_MATCH'),
+                                  ({'approval_status':'SUSPENDED'},'APPROVAL_NOT_CURRENT')]:
+            self.assertEqual(capability_match({**cap,**changes,'mappings':effective_mappings(cap, [], [shared])}, 'EC35', date.today()), expected)
+        family = effective_mappings(cap, [], [{**shared,'match_level':'POSSIBLE_FAMILY'}])
+        self.assertEqual(capability_match({**cap,'mappings':family}, 'EC35', date.today()), 'POSSIBLE_FAMILY')
+
     def test_api_roles_and_csrf(self):
         from adsb_ingest.webapp import create_app
         from test_webapp import FakeAdminStore, FakeAnalyticsStore, FakeNaturalLanguage, FakeAccessStore
@@ -17,13 +43,18 @@ class CapabilityMappingTests(unittest.TestCase):
             with patch('adsb_ingest.webapp.CapabilityMappingStore') as store:
                 store.return_value.search.return_value = {'rows':[]}
                 store.return_value.save.return_value = {'id':1}
+                store.return_value.save_shared.return_value = {'id':2}
                 self.assertEqual(client.get('/api/capability-mappings',headers=headers).status_code,200)
                 self.assertEqual(client.post('/api/capability-mappings/1',headers=headers,json={}).status_code,403)
+                self.assertEqual(client.post('/api/capability-mappings/1/shared',headers=headers,json={}).status_code,403)
                 headers['X-Heligent-Auth-Email'] = 'analyst@example.com'
                 no_csrf = {k:v for k,v in headers.items() if k != 'X-Requested-With'}
                 self.assertEqual(client.post('/api/capability-mappings/1',headers=no_csrf,json={}).status_code,403)
+                self.assertEqual(client.post('/api/capability-mappings/1/shared',headers=no_csrf,json={}).status_code,403)
                 self.assertEqual(client.post('/api/capability-mappings/1',headers=headers,json={}).status_code,200)
                 self.assertEqual(store.return_value.save.call_args.args[-1],'analyst@example.com')
+                self.assertEqual(client.post('/api/capability-mappings/1/shared',headers=headers,json={}).status_code,200)
+                self.assertEqual(store.return_value.save_shared.call_args.args[-1],'analyst@example.com')
         demo = create_app(start_worker=False,store=FakeAdminStore(),analytics_store=FakeAnalyticsStore(),natural_language=FakeNaturalLanguage(),public_demo=True)
         self.assertEqual(demo.test_client().get('/api/capability-mappings').status_code,404)
 
