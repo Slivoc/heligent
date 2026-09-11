@@ -653,7 +653,8 @@ def create_app(
         from .unidentified import unidentified_activity
         return jsonify(_json_ready(unidentified_activity(admin_store,
             request.args.get('from'), request.args.get('to'), int(request.args.get('offset','0')),
-            request.args.get('category','ALL'), request.args.get('region','ALL'))))
+            request.args.get('category','ROTORCRAFT_UNKNOWN'), request.args.get('region','ALL'),
+            request.args.get('search',''))))
 
     @app.post('/api/tools/identity/preview')
     def identity_preview():

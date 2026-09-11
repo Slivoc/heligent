@@ -17,3 +17,5 @@
 .unidentified-table th, .unidentified-table td { padding: 12px; text-align: left; border-bottom: 1px solid #dbe3e7; max-width: 230px; }
 .tools-page select { padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; max-width: 100%; }
 .unidentified-table td > div + div { margin-top: 10px; }
+.unidentified-unknown { max-width: 300px; }
+.unidentified-unknown small { display: block; margin-top: 4px; font-size: .875rem; }

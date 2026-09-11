@@ -10,7 +10,7 @@
     "build": "vinext build",
     "build:spa": "vite build --config vite.spa.config.ts",
     "start": "vinext start",
-    "test": "npm run build && npm run build:spa && node --test tests/rendered-html.test.mjs",
+    "test": "npm run build && npm run build:spa && node --test tests/rendered-html.test.mjs tests/maintenance-watchlist.test.cjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },

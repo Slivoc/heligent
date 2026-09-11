@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -82,6 +83,60 @@ class PostgresIntegrationTests(unittest.TestCase):
         self.assertNotIn(watch['id'], [w['id'] for w in pulse.watches()])
         self.assertEqual(len(pulse.detail(watch['id'])['events']), 1)
         self.assertEqual(pulse.add({'registration':'G-PULSE'}, 'analyst@example.com')['id'], watch['id'])
+
+    def test_maintenance_watchlist_operator_metadata_and_restore(self):
+        catalog, discovery, summary = self.fixture()
+        self.store.upsert_airports(catalog)
+        dataset_id = self.store.upsert_dataset(discovery)
+        job = self.store.start_job(dataset_id, 'PROCESS')
+        self.store.set_processing(dataset_id)
+        self.store.load_summaries(dataset_id, job, iter([summary]))
+        pulse = MaintenanceStore(self.store)
+        watch = pulse.add({'registration': 'g-test', 'notes': 'Keep this team note'}, 'pulse@example.com')
+        unknown = pulse.add({'registration': 'G-NODATA'}, 'pulse@example.com')
+        assigned = pulse.add({'registration': 'G-UNSEEN'}, 'pulse@example.com')
+        with self.store.connect() as c:
+            c.execute("INSERT INTO company_data_source(code,name) VALUES ('PULSE_TEST','Pulse test')")
+            operator = c.execute("INSERT INTO company(company_key,name,is_operator) VALUES ('pulse-operator','Pulse Air',true) RETURNING id").fetchone()[0]
+            fallback = c.execute("INSERT INTO company(company_key,name,is_operator) VALUES ('pulse-fallback','Registration Air',true) RETURNING id").fetchone()[0]
+            c.execute('''INSERT INTO company_aircraft_assignment(company_id,aircraft_address,source_code,external_id,confidence)
+                VALUES (%s,'abcdef','PULSE_TEST','address',0.8)''', (operator,))
+            c.execute('''INSERT INTO company_aircraft_assignment(company_id,registration,source_code,external_id,confidence)
+                VALUES (%s,'G-TEST','PULSE_TEST','tail',1),(%s,'G-UNSEEN','PULSE_TEST','unseen',1)''', (fallback, fallback))
+            # An archived/expired assignment and an owner must not become the operator.
+            c.execute('''INSERT INTO company_aircraft_assignment(company_id,registration,source_code,external_id,valid_to,assignment_role)
+                VALUES (%s,'G-NODATA','PULSE_TEST','expired','2000-01-01','OPERATOR'),
+                       (%s,'G-NODATA','PULSE_TEST','owner',NULL,'OWNER')''', (operator, operator))
+            other_list = c.execute("INSERT INTO maintenance_watchlist(name,scope_key) VALUES ('Other team','pulse-other') RETURNING id").fetchone()[0]
+            c.execute("INSERT INTO maintenance_watch(watchlist_id,registration,created_by) VALUES (%s,'GPRIVATE','other@example.com')", (other_list,))
+        rows = {row['id']: row for row in pulse.watches()}
+        self.assertEqual(rows[watch['id']]['operator'], 'Pulse Air')
+        self.assertEqual(rows[watch['id']]['type_code'], 'H145')
+        self.assertEqual(rows[watch['id']]['last_seen_date'], date(2026, 8, 20))
+        self.assertEqual(rows[assigned['id']]['operator'], 'Registration Air')
+        self.assertIsNone(rows[assigned['id']]['type_code'])
+        self.assertIsNone(rows[unknown['id']]['operator'])
+        self.assertIsNone(rows[unknown['id']]['last_seen_date'])
+        self.assertNotIn('GPRIVATE', [row['registration'] for row in rows.values()])
+        event = pulse.review(watch['id'], dict(started_at='2025-01-01T00:00:00Z', ended_at='2025-01-02T00:00:00Z',
+            maintenance_kind='100 hour check', status='CONFIRMED', notes='Operator confirmation'), 'pulse@example.com')
+        pulse.archive(watch['id'])
+        self.assertNotIn(watch['id'], [row['id'] for row in pulse.watches()])
+        restored = pulse.add({'registration': watch['registration'], 'notes': watch['notes']}, 'pulse@example.com')
+        self.assertEqual(restored['id'], watch['id'])
+        self.assertEqual(restored['notes'], 'Keep this team note')
+        restored_row = next(row for row in pulse.watches() if row['id'] == watch['id'])
+        self.assertEqual(restored_row['last_confirmed_maintenance'], event['ended_at'])
+        self.assertIn(event['id'], [row['id'] for row in pulse.detail(watch['id'])['events']])
+        # No completed observation data should still leave every watch visible.
+        with self.store.connect() as c:
+            c.execute("UPDATE dataset_day SET status='PROCESSING' WHERE id=%s", (dataset_id,))
+        row = next(row for row in pulse.watches() if row['id'] == watch['id'])
+        self.assertIsNone(row['type_code'])
+        self.assertIsNone(row['last_seen_date'])
+        self.assertEqual(row['operator'], 'Registration Air')
+        with self.store.connect() as c:
+            c.execute("UPDATE dataset_day SET status='PROCESSED' WHERE id=%s", (dataset_id,))
 
     def fixture(self):
         airport = Airport(
@@ -276,12 +331,58 @@ class PostgresIntegrationTests(unittest.TestCase):
         self.assertFalse(unidentified_activity(self.store,'2026-08-20','2026-08-20',region='NA')['rows'])
         with self.store.connect() as c:
             c.execute("UPDATE aircraft_day SET type_code=NULL WHERE address='abcdef'")
-        self.assertTrue(unidentified_activity(self.store,'2026-08-20','2026-08-20',category='ROTORCRAFT_UNKNOWN')['rows'])
+        self.assertTrue(unidentified_activity(self.store,'2026-08-20','2026-08-20',category='ROTORCRAFT_UNKNOWN',region='EU')['rows'])
         self.assertFalse(unidentified_activity(self.store,'2026-08-20','2026-08-20',category='ROTORCRAFT')['rows'])
         with self.store.connect() as c:
             c.execute("UPDATE aircraft_day SET type_code='H145' WHERE address='abcdef'")
         self.assertFalse(result['has_more'])
         with self.assertRaises(ValueError): unidentified_activity(self.store,'2026-08-01','2026-09-05')
+
+    def test_unidentified_untyped_search_preserves_days_and_visits(self):
+        from adsb_ingest.unidentified import unidentified_activity
+        catalog, discovery, _ = self.fixture()
+        self.store.upsert_airports(catalog)
+        datasets = []
+        for day in (date(2026, 9, 1), date(2026, 9, 2), date(2026, 9, 3)):
+            release = replace(discovery.preferred, tag=f'unidentified-{day}')
+            dataset = self.store.upsert_dataset(replace(discovery, utc_date=day, preferred=release, variants=(release,)))
+            datasets.append(dataset)
+            summaries = []
+            # Put the untyped GWSAS clue beyond the first page of hour-ranked results.
+            for address in ['4082a2', '4082a1', '4082f0'] + [f'{0x100000+i:06x}' for i in range(51)]:
+                callsign = ('GWSAS' if day.day != 2 else 'RESCUE1') if address == '4082a2' else 'GXSAS'
+                payload = {'icao':address, 'r':None, 't':'B738' if address=='4082f0' else None,
+                    'timestamp':datetime.combine(day, datetime.min.time(), UTC).timestamp(),
+                    'trace':[trace_row(0,51,-1,'ground',0,flight=callsign),
+                             trace_row(30,51.001,-1,'ground',10,flight=callsign),
+                             trace_row(60,51.01,-1,500,100,flight=callsign),
+                             trace_row(90,51.1,-1,1500,120,flight=callsign)]}
+                summaries.append(summarize_trace(TracePayload('trace.json',address,100,500,payload),day,AirportIndex(catalog.airports)))
+            job = self.store.start_job(dataset, 'PROCESS')
+            self.store.set_processing(dataset)
+            self.store.load_summaries(dataset, job, iter(summaries))
+        with self.store.connect() as c:
+            c.execute("INSERT INTO aircraft_type_classification(type_code,category,classification_source) VALUES ('B738','FIXED_WING','TEST') ON CONFLICT(type_code) DO UPDATE SET category='FIXED_WING'")
+            c.execute("UPDATE dataset_day SET status='FAILED_PROCESSING' WHERE id=%s", (datasets[-1],))
+        filters = dict(start='2026-09-01', end='2026-09-03', region='EU')
+        first = unidentified_activity(self.store, **filters)
+        self.assertTrue(first['has_more'])
+        self.assertNotIn('4082a2', [r['address'] for r in first['rows']])
+        second = unidentified_activity(self.store, **filters, offset=50)
+        expected = next(r for r in second['rows'] if r['address']=='4082a2')
+        self.assertNotIn('4082f0', [r['address'] for r in first['rows']+second['rows']])
+        for search in ('G-WSAS', ' g wsas ', '4082A2', '82a2'):
+            result = unidentified_activity(self.store, **filters, search=search)
+            self.assertEqual(result['rows'], [expected])
+            self.assertEqual(result['processed_days'], 2)
+            self.assertFalse(result['has_more'])
+            self.assertEqual(expected['days'], 2)
+            self.assertEqual(expected['types'], [])
+            self.assertIn('RESCUE1', expected['callsigns'])
+            self.assertEqual(expected['top_visits'][0]['airport_ident'], 'TEST')
+        self.assertFalse(unidentified_activity(self.store, **filters, category='ROTORCRAFT')['rows'])
+        self.assertFalse(unidentified_activity(self.store, **{**filters,'region':'NA'}, search='GWSAS')['rows'])
+        self.assertFalse(unidentified_activity(self.store, **filters, search="GWSAS' OR 1=1 --")['rows'])
 
     def test_capability_shared_mapping_reuse_and_audit(self):
         from adsb_ingest.capability_mappings import CapabilityMappingStore, effective_mappings

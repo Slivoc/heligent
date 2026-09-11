@@ -6,6 +6,23 @@ Analysts can add registrations to the shared team watchlist, inspect the latest
 candidates, and record externally known maintenance dates. Unknown tails are
 allowed; they remain visible even without observations.
 
+The watchlist shows each aircraft's operator, observed type, latest confirmed
+maintenance date and last observed date. Search accepts registrations with or
+without hyphens, operator names and type codes. Operator, aircraft type and
+review-status filters work together; unknown operators and types have their own
+options. Clear filters to return to the full list.
+
+Use **Remove** on a watchlist row without opening the aircraft. **Undo removal**
+restores the most recently removed watch, including its notes and reviews.
+Removal archives the watch; it never deletes maintenance evidence. On a narrow
+screen, each row becomes a compact aircraft card with the same actions.
+
+Operators follow current recorded operator claims, using the same address-first,
+then registration matching as Explorer. Type and last observed date come from
+the latest processed aircraft-day matching the watched registration. These are
+registration-based observations, not a permanent airframe identity. An operator
+can be shown for an unobserved tail when a current registration assignment exists.
+
 Reviews require a maintenance/check type, a decision (confirmed, rejected or
 uncertain), and evidence notes. Record the source of a confirmation. Airport
 presence alone does not prove entry into an individual MRO or maintenance.
@@ -38,7 +55,8 @@ These routes use the existing web session/proxy authentication, not the Sproutt
 intelligence API bearer token. Mutations require ANALYST or ADMIN and the
 `X-Requested-With: HeligentAdmin` header. Public demo access is blocked.
 
-- GET /api/maintenance/watches: active internal watches and latest confirmed date.
+- GET /api/maintenance/watches: active internal watches, latest confirmed date,
+  operator/source, latest observed type code and last observed date.
 - POST /api/maintenance/watches: registration and optional notes; idempotent add/reactivate.
 - GET /api/maintenance/watches/{id}: watch, flights, visits, candidates, events and baseline totals.
 - POST /api/maintenance/watches/{id}/reviews: started_at, ended_at (timezone required),

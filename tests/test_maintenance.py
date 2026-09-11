@@ -31,6 +31,7 @@ class MaintenanceTests(unittest.TestCase):
         with patch('adsb_ingest.webapp.MaintenanceStore') as store:
             self.assertEqual(client.post('/api/maintenance/watches', json={'registration':'GTEST'}, headers=headers).status_code,403)
             self.assertEqual(client.post('/api/maintenance/watches/1/reviews', json={}, headers=headers).status_code,403)
+            self.assertEqual(client.post('/api/maintenance/watches/1/archive', json={}, headers=headers).status_code,403)
             store.assert_not_called()
 
     def test_public_demo_cannot_read_watchlists(self):

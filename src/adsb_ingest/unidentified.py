@@ -1,13 +1,20 @@
 """Read-only review of activity whose historical registration is missing."""
 from datetime import date, timedelta
+import re
 from psycopg.rows import dict_row
 
 
-def unidentified_activity(store, start=None, end=None, offset=0, category='ALL', region='ALL'):
+def unidentified_activity(store, start=None, end=None, offset=0, category='ROTORCRAFT_UNKNOWN', region='ALL', search=''):
     if category not in ('ALL','ROTORCRAFT','ROTORCRAFT_UNKNOWN','UNKNOWN','FIXED_WING') or region not in ('ALL','EU','GB','NA','SA','AF','AS','OC','AN'):
         raise ValueError('Invalid aircraft category or region')
     if offset < 0 or offset > 100000:
         raise ValueError('Invalid page offset')
+    if len(search) > 40:
+        raise ValueError('Use at most 40 characters for a hex or callsign search')
+    search_key = re.sub(r'[^A-Z0-9]', '', search.upper())
+    if search.strip() and not search_key:
+        raise ValueError('Enter a hex address or callsign containing letters or numbers')
+    search_pattern = f'%{search_key}%'
     with store.connect() as c:
         c.row_factory = dict_row
         c.execute("SET LOCAL statement_timeout = '15s'")
@@ -33,11 +40,14 @@ def unidentified_activity(store, start=None, end=None, offset=0, category='ALL',
                 sum(airborne_time_seconds)/3600.0 AS hours,
                 array_remove(array_agg(DISTINCT nullif(btrim(type_code),'')),NULL) AS types
             FROM missing GROUP BY address
+            HAVING (%s='' OR upper(address) LIKE %s OR bool_or(EXISTS (
+                SELECT 1 FROM unnest(callsigns) clue
+                WHERE regexp_replace(upper(clue),'[^A-Z0-9]','','g') LIKE %s)))
             ORDER BY hours DESC,address LIMIT 51 OFFSET %s
         ) SELECT r.*,a.registration AS current_registration,
             ARRAY(SELECT DISTINCT btrim(callsign) FROM missing m CROSS JOIN LATERAL unnest(m.callsigns) callsign
                 WHERE m.address=r.address AND btrim(callsign)<>'' ORDER BY 1 LIMIT 20) AS callsigns
-          FROM ranked r JOIN aircraft a USING(address) ORDER BY hours DESC,address''', (start,end,category,category,category,region,region,region,offset)).fetchall()
+          FROM ranked r JOIN aircraft a USING(address) ORDER BY hours DESC,address''', (start,end,category,category,category,region,region,region,search_key,search_pattern,search_pattern,offset)).fetchall()
         visits = c.execute('''WITH grouped AS (SELECT v.address,v.airport_ident,ap.name,count(*) AS visits,
                 sum(v.ground_time_seconds)/3600.0 AS ground_hours
                 FROM aircraft_airport_visit v JOIN aircraft_day d USING(dataset_day_id,address)

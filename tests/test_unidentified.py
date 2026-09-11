@@ -7,7 +7,7 @@ from test_webapp import FakeAdminStore, FakeAnalyticsStore, FakeNaturalLanguage,
 class UnidentifiedTests(unittest.TestCase):
     def test_invalid_filters(self):
         from adsb_ingest.unidentified import unidentified_activity
-        for filters in ({'category':'JET'},{'region':'XX'}):
+        for filters in ({'category':'JET'},{'region':'XX'},{'search':'x'*41},{'search':'%%%'}):
             with self.assertRaises(ValueError): unidentified_activity(None,**filters)
 
     def test_private_read_only_route(self):
@@ -20,5 +20,9 @@ class UnidentifiedTests(unittest.TestCase):
             headers={'X-Heligent-Proxy-Secret':'s'*40,'X-Heligent-Auth-Email':'viewer@example.com'}
             with patch('adsb_ingest.unidentified.unidentified_activity',return_value={'rows':[]}) as read:
                 self.assertEqual(client.get('/api/tools/unidentified?from=2026-08-01&to=2026-08-07',headers=headers).status_code,200)
-                self.assertEqual(read.call_args.args[1:],('2026-08-01','2026-08-07',0,'ALL','ALL'))
+                self.assertEqual(read.call_args.args[1:],('2026-08-01','2026-08-07',0,'ROTORCRAFT_UNKNOWN','ALL',''))
+                self.assertEqual(client.get('/api/tools/unidentified?category=ROTORCRAFT_UNKNOWN&region=EU&search=G-WSAS',headers=headers).status_code,200)
+                self.assertEqual(read.call_args.args[1:],(None,None,0,'ROTORCRAFT_UNKNOWN','EU','G-WSAS'))
+                self.assertEqual(client.get('/api/tools/unidentified?category=ROTORCRAFT&region=EU',headers=headers).status_code,200)
+                self.assertEqual(read.call_args.args[4],'ROTORCRAFT')
                 self.assertEqual(client.get('/api/tools/unidentified?offset=bad',headers=headers).status_code,400)

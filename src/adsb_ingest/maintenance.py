@@ -39,9 +39,33 @@ class MaintenanceStore:
     def watches(self):
         with self.store.connect() as c:
             c.row_factory = dict_row
-            return c.execute('''SELECT w.*, (SELECT max(ended_at) FROM maintenance_event e
+            c.execute("SET LOCAL statement_timeout = '15s'")
+            return c.execute('''SELECT w.*, aircraft.type_code, aircraft.utc_date AS last_seen_date,
+                operator.operator, operator.operator_source_code,
+                (SELECT max(ended_at) FROM maintenance_event e
                 WHERE e.watch_id=w.id AND e.status='CONFIRMED') AS last_confirmed_maintenance
                 FROM maintenance_watch w JOIN maintenance_watchlist l ON l.id=w.watchlist_id
+                LEFT JOIN LATERAL (
+                    SELECT ad.address, ad.type_code, ad.utc_date
+                    FROM aircraft_day ad JOIN dataset_day d ON d.id=ad.dataset_day_id
+                    WHERE replace(upper(ad.registration),'-','')=w.registration
+                      AND d.status='PROCESSED'
+                    ORDER BY ad.utc_date DESC, ad.last_seen_at DESC, ad.address
+                    LIMIT 1
+                ) aircraft ON true
+                LEFT JOIN LATERAL (
+                    SELECT claim.operator, claim.operator_source_code
+                    FROM current_aircraft_operator_claim claim
+                    WHERE claim.aircraft_address=aircraft.address
+                       OR claim.reported_aircraft_address=aircraft.address
+                       OR claim.registration_key=w.registration
+                    ORDER BY CASE WHEN claim.aircraft_address=aircraft.address THEN 0
+                                  WHEN claim.reported_aircraft_address=aircraft.address THEN 1
+                                  ELSE 2 END,
+                        claim.confidence DESC NULLS LAST,
+                        claim.operator_source_code, claim.operator
+                    LIMIT 1
+                ) operator ON true
                 WHERE l.scope_key='internal' AND w.active ORDER BY w.registration''').fetchall()
 
     def add(self, payload, actor):
