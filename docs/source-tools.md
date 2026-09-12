@@ -17,8 +17,9 @@ an installed importer is running on a schedule.
 - Processed ADSB.lol archive coverage and imported reference datasets.
 - Per-source notes and review intervals shared between analysts. The default
   intervals are local review targets, not promises about upstream update frequency.
-- Separate individual-hex workspaces for ADSBdb and HexDB, plus the planned bulk
-  and national-register adapters described below.
+- A tar1090 bulk workspace with helicopter-first comparisons and dated identity review.
+- Separate individual-hex workspaces for ADSBdb and HexDB, plus planned additional
+  bulk and national-register adapters described below.
 
 Source freshness uses the latest successful **source snapshot date**. A download
 today of a month-old snapshot remains old. Missing source dates stay unknown;
@@ -79,11 +80,10 @@ Per-record source revision dates remain unknown even after a successful lookup.
 
 ## Which sources to add next
 
-1. **tar1090-db** is the priority bulk candidate source. Its repository publishes
-   `aircraft.csv.gz` on the `csv` branch. Implement a bounded download/file import,
-   version/hash retention, column validation and candidate comparisons against
-   unresolved hexes. Keep candidates separate from authoritative dated identity.
-   [Publisher repository](https://github.com/wiedehopf/tar1090-db).
+1. **tar1090-db** now has a bulk source workspace. Download pinned aircraft and
+   type references, compare observed gaps with rotorcraft first, and review dated
+   assignments individually. Revisions, hashes, original files, failed refreshes
+   and saved comparisons are retained. [Tool workflow](tar1090-source-tool.md).
 2. **Mictronics** publishes JSON/ZIP exports under the Open Data Commons Attribution
    License and states a weekly export cadence. tar1090 uses this upstream, so these
    should share a source-family identifier; matching claims are not independent
@@ -103,7 +103,8 @@ Per-record source revision dates remain unknown even after a successful lookup.
    applicable terms, snapshot dates, overlap and column semantics before importing.
    [OpenSky aircraft metadata](https://opensky-network.org/data/aircraft).
 
-The first two bulk adapters, G-INFO and OpenSky are visibly **planned**, not running.
+The direct Mictronics adapter, G-INFO and OpenSky remain **planned**.
+The tar1090 adapter is available on demand; deployment alone does not run it.
 There are currently no national identity adapters for Europe, Africa, Asia or South
 America. The LBA organisation directory does not fill Germany's aircraft-register gap.
 CASA matches known VH registrations and cannot derive a missing tail directly from hex.
@@ -117,8 +118,8 @@ company/reference sources. Add each new source's own parser and preview/import
 boundary, retain input hashes and source dates, and expose it in its workspace.
 Do not silently convert a planned adapter into an active feed merely by adding a card.
 
-Migration **phase22.sql** adds only shared source settings and lookup evidence, plus
-lookup-cache indexes. It is registered in normal startup and `heligent-migrate`.
+Migration **phase22.sql** adds shared source settings and lookup evidence, plus
+lookup-cache indexes. **phase23.sql** adds the tar1090 bulk evidence and comparisons. It is registered in normal startup and `heligent-migrate`.
 Deploy the Python changes, migration and rebuilt SPA through the usual process.
 No archive reprocessing, new API credentials or Pi changes are needed. Deployment
 does not run imports or rewrite historical identities.

@@ -67,6 +67,16 @@ def source_inventory(store):
                    row_number() OVER (PARTITION BY source_code ORDER BY id DESC) AS rank,
                    row_number() OVER (PARTITION BY source_code,status ORDER BY id DESC) AS status_rank
             FROM company_import_batch) b WHERE rank<=25 OR status_rank=1 ORDER BY source_code,rank''').fetchall()
+        tar_batches = c.execute('''SELECT * FROM (SELECT 'TAR1090_DB' AS source_code,
+            a.id,a.status,s.source_date::date AS snapshot_date,a.finished_at AS imported_at,
+            a.started_at AS fetched_at,a.started_at AS attempted_at,'aircraft.csv.gz' AS file_name,
+            s.metadata->>'sha256' AS sha256,(s.metadata->'field_coverage'->>'rows')::integer AS rows,
+            s.metadata,a.error_message,row_number() OVER (ORDER BY a.id DESC) AS rank,
+            row_number() OVER (PARTITION BY a.status ORDER BY a.id DESC) AS status_rank
+            FROM tar1090_attempt a LEFT JOIN tar1090_snapshot s ON s.id=a.snapshot_id) b
+            WHERE rank<=25 OR status_rank=1 ORDER BY rank''').fetchall()
+        tar_preview = c.execute('''SELECT id,created_at,report->'counts' AS counts,report->>'region' AS region,
+            report->>'from' AS "from",report->>'to' AS "to" FROM tar1090_preview ORDER BY created_at DESC LIMIT 1''').fetchone()
         lookups = c.execute('''SELECT * FROM (SELECT source_code,id,address,status,fetched_at,
             source_url,result,row_number() OVER (PARTITION BY source_code ORDER BY id DESC) AS rank
             FROM tool_source_lookup) l WHERE rank<=25''').fetchall()
@@ -91,10 +101,10 @@ def source_inventory(store):
         code = entry['code']
         entry['settings'] = settings.get(code)
         entry['refresh_days'] = settings.get(code, {}).get('refresh_days', entry['refresh_days'])
-        evidence = [b for b in batches + company_batches if b['source_code'] == code]
+        evidence = [b for b in batches + company_batches + tar_batches if b['source_code'] == code]
         entry['history'] = [b for b in evidence if b['rank'] <= 25]
         entry['lookups'] = [l for l in lookups if l['source_code'] == code]
-        success = next((b for b in evidence if b['status'] in ('IMPORTED', 'SUCCEEDED')), None)
+        success = next((b for b in evidence if b['status'] in ('IMPORTED', 'SUCCEEDED', 'UNCHANGED')), None)
         entry['last_successful_import'] = success
         entry['latest_preview'] = previews.get(code)
         if success:
@@ -113,6 +123,12 @@ def source_inventory(store):
         entry['schedule'] = ('On demand; no automatic lookup or scraping' if entry['readiness'] == 'LOOKUP'
             else 'Not connected' if entry['readiness'] == 'PLANNED'
             else 'No schedule recorded here; external server timers are not monitored')
+        if code == 'TAR1090_DB':
+            entry.update(schedule='On demand from this workspace; no background refresh', bulk_preview=tar_preview,
+                         attribution='tar1090-db / wiedehopf; Mictronics aircraft database; ADSB Exchange')
+            if success:
+                entry['field_coverage'] = success['metadata']['field_coverage']
+                entry['bulk_metadata'] = success['metadata']
     trace = catalog['ADSB_LOL']
     trace.update(snapshot_date=activity['latest'], activity=activity, has_import=bool(activity['processed_days']))
     trace['freshness'] = freshness(activity['latest'], trace['refresh_days'])

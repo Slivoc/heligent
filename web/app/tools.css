@@ -89,3 +89,14 @@
   .source-detail-header h2 { font-size:29px; }
   .source-filters label { width:100%; }
 }
+
+.tar1090-tool fieldset {display:flex;flex-wrap:wrap;align-items:end;gap:12px;border:0;padding:0;min-width:0;width:100%}
+.tar1090-tool fieldset label {flex:1 1 170px}
+.tar-groups {display:flex;flex-wrap:wrap;gap:8px;margin:20px 0}
+.tar-groups button {display:flex;align-items:center;gap:10px}
+.tar-groups button[aria-pressed="true"] {background:#163e38;color:white;border-color:#163e38}
+.tar-groups strong {font-variant-numeric:tabular-nums}
+.tar-evidence {margin:16px 0;padding:14px;background:#f4f7f5;border-radius:10px}
+.tar-evidence a,.tar-evidence code {display:block;overflow-wrap:anywhere;margin-top:6px}
+.tar-paging {display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}
+.tar1090-tool h4 {margin-top:28px}

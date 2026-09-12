@@ -45,6 +45,11 @@ PUBLIC_DEMO_ENDPOINTS = frozenset(
     }
 )
 MUTATION_MINIMUM_ROLE = {
+    "tar1090_refresh": "ANALYST",
+    "tar1090_preview": "ANALYST",
+    "tar1090_identity": "ANALYST",
+    "tools_source_settings": "ANALYST",
+    "tools_source_lookup": "ANALYST",
     "identity_preview": "ANALYST",
     "identity_assign": "ANALYST",
     "capability_mapping_save": "ANALYST",
@@ -252,6 +257,7 @@ def create_app(
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase20.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase21.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase22.sql')
+        admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase23.sql')
     query_service = natural_language or SemanticNaturalLanguageAnalytics(analytics)
     worker = SequentialIngestionWorker(
         admin_store,
@@ -680,6 +686,32 @@ def create_app(
         require_access_role('VIEWER')
         from .source_tools import identity_gaps
         return jsonify(_json_ready(identity_gaps(admin_store, request.args.get('from'), request.args.get('to'))))
+
+    @app.post('/api/tools/tar1090/refresh')
+    def tar1090_refresh():
+        actor = require_access_role('ANALYST')
+        from .tar1090 import refresh_snapshot
+        return jsonify(_json_ready(refresh_snapshot(admin_store, actor.email)))
+
+    @app.post('/api/tools/tar1090/preview')
+    def tar1090_preview():
+        actor = require_access_role('ANALYST')
+        from .tar1090 import build_preview
+        return jsonify(_json_ready(build_preview(admin_store, request.get_json(), actor.email)))
+
+    @app.get('/api/tools/tar1090/previews/<preview_id>')
+    def tar1090_preview_page(preview_id):
+        require_access_role('VIEWER')
+        from .tar1090 import preview_page
+        return jsonify(_json_ready(preview_page(admin_store, preview_id, request.args)))
+
+    @app.post('/api/tools/tar1090/identity/<action>')
+    def tar1090_identity(action):
+        actor = require_access_role('ANALYST')
+        from .tar1090 import review_identity
+        if action not in ('preview', 'assign'):
+            abort(404)
+        return jsonify(_json_ready(review_identity(admin_store, request.get_json(), actor.email, save=action == 'assign')))
 
     @app.get('/api/tools/unidentified')
     def unidentified_hexes():

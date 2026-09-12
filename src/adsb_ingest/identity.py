@@ -34,8 +34,10 @@ def validate(payload):
     return dict(address=address,registration=registration,type_code=code,valid_from=start,valid_to=end,source_url=source,notes=notes)
 
 
-def assign_identity(store, payload, actor, save=False):
+def assign_identity(store, payload, actor, save=False, *, evidence=None):
     p = validate(payload)
+    if evidence is not None:
+        p['evidence'] = evidence
     address,start,end = p['address'],p['valid_from'],p['valid_to']
     with store.connect() as c:
         c.row_factory = dict_row
@@ -71,13 +73,54 @@ def assign_identity(store, payload, actor, save=False):
             AND address<>%s AND utc_date >= %s AND (%s::date IS NULL OR utc_date<=%s) LIMIT 1''',(norm,address,start,end,end)).fetchone()
         if other:
             raise ValueError('This registration has observations under another hex in the chosen range; review identity first')
-        fingerprint = sha256(json.dumps([p,rows,aircraft],sort_keys=True,default=str).encode()).hexdigest()
+        resolved = []
+        registry = []
+        if evidence is not None:
+            resolved = c.execute('''SELECT utc_date,registration,type_code,resolved_category::text,
+                identity_source_code,identity_snapshot_date FROM aircraft_day_identity
+                WHERE address=%s AND utc_date>=%s AND (%s::date IS NULL OR utc_date<=%s)
+                ORDER BY utc_date,dataset_day_id''', (address,start,end,end)).fetchall()
+            if any(r['registration'] and r['registration'].strip().upper().replace('-','') != norm for r in resolved):
+                raise ValueError('Resolved registry evidence conflicts with this tail; review the identity separately')
+            if p['type_code'] and any(r['type_code'] and r['type_code'].strip().upper() != p['type_code'] for r in resolved):
+                raise ValueError('Resolved registry evidence conflicts with this type')
+            category = evidence.get('category', 'UNKNOWN')
+            if category != 'UNKNOWN' and any(r['resolved_category'] not in ('UNKNOWN',category) for r in resolved):
+                raise ValueError('Resolved aircraft category conflicts with the source candidate')
+            other_resolved = c.execute('''SELECT 1 FROM aircraft_day_identity WHERE address<>%s
+                AND replace(upper(registration),'-','')=%s AND utc_date>=%s AND utc_date<=%s LIMIT 1''',
+                (address,norm,start,end)).fetchone()
+            if other_resolved:
+                raise ValueError('Registry-resolved observations use this tail under another hex')
+            registry = c.execute('''SELECT source_code,snapshot_date,registration,address,
+                official_type_code,official_category::text,effective_date,ineffective_date
+                FROM aircraft_registry_resolved_cache WHERE
+                (address=%s OR replace(upper(registration),'-','')=%s)
+                AND effective_date<=%s AND (ineffective_date IS NULL OR ineffective_date>=%s)
+                ORDER BY source_code,registration,effective_date''', (address,norm,end,start)).fetchall()
+            if any(r['registration'].strip().upper().replace('-','') != norm
+                   or r['address'] and r['address'] != address
+                   or p['type_code'] and r['official_type_code'] and r['official_type_code'] != p['type_code']
+                   or category != 'UNKNOWN' and r['official_category'] not in ('UNKNOWN',category) for r in registry):
+                raise ValueError('Dated national register evidence conflicts with this candidate')
+            classification = c.execute('SELECT category::text FROM aircraft_type_classification WHERE type_code=%s', (p['type_code'],)).fetchone()
+            if classification and category != 'UNKNOWN' and classification['category'] not in ('UNKNOWN',category):
+                raise ValueError('Local type classification changed; build a new source comparison')
+        fingerprint = sha256(json.dumps([p,rows,aircraft,resolved,registry],sort_keys=True,default=str).encode()).hexdigest()
         if not save:
             return dict(token=fingerprint,affected_days=len(rows),first_day=rows[0]['utc_date'],last_day=rows[-1]['utc_date'],assignment=p)
         if payload.get('token') != fingerprint:
             raise ValueError('Assignment or underlying records changed. Preview again before saving.')
         c.execute('INSERT INTO aircraft_identity_review(address,assignment,previous_rows,previous_aircraft,reviewed_by) VALUES (%s,%s,%s,%s,%s)',
             (address,Jsonb(json.loads(json.dumps(p,default=str))),Jsonb(json.loads(json.dumps(rows,default=str))),Jsonb(aircraft),actor))
+        if evidence is not None and p['type_code'] and evidence.get('category') in ('ROTORCRAFT','FIXED_WING'):
+            # A reviewed identity also makes its previously unknown type usable by
+            # the normal helicopter filters. Preserve any existing known category.
+            c.execute('''INSERT INTO aircraft_type_classification(type_code,category,classification_source,notes)
+                VALUES (%s,%s,'TAR1090_DB_REVIEW',%s) ON CONFLICT(type_code) DO UPDATE SET
+                category=excluded.category,classification_source=excluded.classification_source,
+                notes=excluded.notes,updated_at=now() WHERE aircraft_type_classification.category='UNKNOWN' ''',
+                (p['type_code'],evidence['category'],json.dumps(evidence,sort_keys=True)))
         c.execute('''INSERT INTO aircraft_metadata_override(address,valid_from,valid_to,registration,type_code,source_url,notes)
             VALUES (%s,%s,%s,%s,%s,%s,%s)''',(address,start,end,p['registration'],p['type_code'],p['source_url'],p['notes']))
         # Existing trigger applies the dated override to each historical row.

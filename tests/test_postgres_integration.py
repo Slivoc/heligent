@@ -55,6 +55,8 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase21.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase21.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase22.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase23.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase23.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase22.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase20.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase19.sql")
@@ -75,7 +77,7 @@ class PostgresIntegrationTests(unittest.TestCase):
         from adsb_ingest.aircraft_lookup import lookup_aircraft
         inventory = source_inventory(self.store)
         codes = {s['code']:s for s in inventory['sources']}
-        self.assertEqual(codes['TAR1090_DB']['readiness'], 'PLANNED')
+        self.assertEqual(codes['TAR1090_DB']['readiness'], 'BULK')
         self.assertEqual(codes['CASA_AIRCRAFT_REGISTER']['countries'], ['AU'])
         save_source_settings(self.store, 'HEXDB', {'refresh_days':35, 'notes':'Need a UK check'}, 'test')
         self.assertEqual(source_detail(self.store, 'HEXDB')['settings']['notes'], 'Need a UK check')
