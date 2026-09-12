@@ -223,7 +223,7 @@ export function Dashboard() {
           ? "helicopters"
         : window.location.hash === "#operators"
           ? "operators"
-        : ["#tools", "#tools/lba"].includes(window.location.hash)
+        : (window.location.hash === "#tools" || window.location.hash.startsWith("#tools/"))
           ? "tools"
         : window.location.hash === "#capability-mappings"
           ? "mappings"

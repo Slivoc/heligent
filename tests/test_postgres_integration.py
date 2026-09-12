@@ -54,6 +54,8 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase20.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase21.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase21.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase22.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase22.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase20.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase19.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase18.sql")
@@ -66,6 +68,98 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase12.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase15.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase14.sql")
+
+    def test_source_inventory_and_cached_lookup_evidence(self):
+        from unittest.mock import patch
+        from adsb_ingest.source_tools import source_inventory, source_detail, save_source_settings
+        from adsb_ingest.aircraft_lookup import lookup_aircraft
+        inventory = source_inventory(self.store)
+        codes = {s['code']:s for s in inventory['sources']}
+        self.assertEqual(codes['TAR1090_DB']['readiness'], 'PLANNED')
+        self.assertEqual(codes['CASA_AIRCRAFT_REGISTER']['countries'], ['AU'])
+        save_source_settings(self.store, 'HEXDB', {'refresh_days':35, 'notes':'Need a UK check'}, 'test')
+        self.assertEqual(source_detail(self.store, 'HEXDB')['settings']['notes'], 'Need a UK check')
+        self.assertEqual(source_detail(self.store, 'HEXDB')['refresh_days'], 35)
+        with patch('adsb_ingest.aircraft_lookup.fetch_aircraft', return_value={'status':'FOUND', 'registration':'G-LOOK', 'type_code':'EC45'}) as fetch:
+            first = lookup_aircraft(self.store, 'HEXDB', '4082a2', 'test')
+            second = lookup_aircraft(self.store, 'HEXDB', '4082A2', 'test')
+            self.assertEqual(first['id'], second['id'])
+            self.assertTrue(second['cached'])
+            self.assertEqual(fetch.call_count, 1)
+            with self.assertRaises(ValueError): lookup_aircraft(self.store, 'HEXDB', '4082a3', 'test')
+        with self.store.connect() as c:
+            self.assertFalse(c.execute("SELECT 1 FROM aircraft WHERE registration='G-LOOK'").fetchone())
+        detail = source_detail(self.store, 'HEXDB')
+        self.assertEqual(detail['freshness']['status'], 'UNKNOWN')
+        self.assertFalse(detail['has_import'])
+        self.assertEqual(detail['lookups'][0]['result']['registration'], 'G-LOOK')
+        with patch('adsb_ingest.aircraft_lookup.fetch_aircraft', return_value={'status':'NOT_FOUND'}) as fetch:
+            first = lookup_aircraft(self.store, 'ADSBDB', '4082a4', 'test')
+            self.assertEqual(lookup_aircraft(self.store, 'ADSBDB', '4082a4', 'test')['id'], first['id'])
+            self.assertEqual(fetch.call_count, 1)
+
+    def test_source_gaps_use_resolved_registry_category_and_preserve_unlocated(self):
+        from adsb_ingest.source_tools import identity_gaps, source_detail
+        from adsb_ingest.unidentified import unidentified_activity
+        catalog, discovery, summary = self.fixture()
+        self.store.upsert_airports(catalog)
+        dataset = self.store.upsert_dataset(discovery)
+        job = self.store.start_job(dataset, 'PROCESS')
+        self.store.set_processing(dataset)
+        self.store.load_summaries(dataset, job, iter([summary]))
+        with self.store.connect() as c:
+            c.execute("UPDATE aircraft_day SET registration=NULL,type_code=NULL WHERE dataset_day_id=%s AND address='abcdef'", (dataset,))
+            batch = c.execute("""INSERT INTO aircraft_registry_import_batch(source_code,snapshot_date,downloaded_at,
+                source_file_name,source_sha256,source_bytes,row_count) VALUES
+                ('TC_CCAR','2026-08-20',now(),'source-tools-test.zip',%s,1,1) RETURNING id""", ('f'*64,)).fetchone()[0]
+            c.execute("""INSERT INTO aircraft_registry_record(import_batch_id,registration,address,manufacturer,model,
+                registry_category,official_category,effective_date)
+                VALUES (%s,'C-TEST','abcdef','AIRBUS','H145','HELICOPTER','ROTORCRAFT','2026-08-01')""", (batch,))
+            c.execute('REFRESH MATERIALIZED VIEW aircraft_registry_resolved_cache')
+        def cleanup():
+            with self.store.connect() as c:
+                c.execute('DELETE FROM aircraft_registry_import_batch WHERE id=%s', (batch,))
+                c.execute('REFRESH MATERIALIZED VIEW aircraft_registry_resolved_cache')
+                c.execute("UPDATE aircraft_day SET registration='G-TEST',type_code='H145' WHERE dataset_day_id=%s AND address='abcdef'", (dataset,))
+        self.addCleanup(cleanup)
+        result = unidentified_activity(self.store,'2026-08-20','2026-08-20',category='ROTORCRAFT')
+        row = next(r for r in result['rows'] if r['address']=='abcdef')
+        self.assertEqual(row['categories'], ['ROTORCRAFT'])
+        self.assertEqual(row['types'], [])
+        self.assertEqual(row['identity_sources'], ['TC_CCAR'])
+        self.assertEqual(row['resolved_registrations'], ['C-TEST'])
+        self.assertFalse(any(r['address']=='abcdef' for r in unidentified_activity(self.store,'2026-08-20','2026-08-20',gap='TAIL')['rows']))
+        self.assertTrue(any(r['address']=='abcdef' for r in unidentified_activity(self.store,'2026-08-20','2026-08-20',gap='TYPE')['rows']))
+        coverage = identity_gaps(self.store, '2026-08-20', '2026-08-20')
+        total = next(r for r in coverage['rows'] if r['region']=='GLOBAL')
+        self.assertGreaterEqual(total['recovered_tail'], 1)
+        self.assertGreaterEqual(total['missing_type'], 1)
+        self.assertGreaterEqual(total['rotorcraft'], 1)
+        fields = source_detail(self.store, 'TC_CCAR')['field_coverage']
+        self.assertEqual(fields, {'rows':1, 'hex':1, 'tail':1, 'icao_type':0, 'category':1, 'rotorcraft':1})
+        # A run of failed attempts must not hide the last successful snapshot or
+        # replace its date with today's download time.
+        with self.store.connect() as c:
+            for n in range(26):
+                c.execute("""INSERT INTO aircraft_registry_import_batch(source_code,snapshot_date,downloaded_at,
+                    source_file_name,source_sha256,source_bytes,row_count,status) VALUES
+                    ('TC_CCAR','2026-09-01',now(),'failed-source-tools-test.zip',%s,0,0,'FAILED')""", (f'{n:064x}',))
+        def clean_failed():
+            with self.store.connect() as c:
+                c.execute("DELETE FROM aircraft_registry_import_batch WHERE source_file_name='failed-source-tools-test.zip'")
+        self.addCleanup(clean_failed)
+        retained = source_detail(self.store, 'TC_CCAR')
+        self.assertTrue(retained['latest_failed'])
+        self.assertTrue(retained['has_import'])
+        self.assertEqual(retained['snapshot_date'], date(2026,8,20))
+        self.assertEqual(len(retained['history']), 25)
+        self.assertEqual(retained['field_coverage'], fields)
+        with self.store.connect() as c:
+            c.execute("DELETE FROM aircraft_airport_visit WHERE dataset_day_id=%s AND address='abcdef'", (dataset,))
+        unlocated = identity_gaps(self.store, '2026-08-20', '2026-08-20')
+        self.assertGreaterEqual(next(r for r in unlocated['rows'] if r['region']=='UNLOCATED')['aircraft'], 1)
+        review = unidentified_activity(self.store,'2026-08-20','2026-08-20',region='UNLOCATED',gap='TYPE')
+        self.assertTrue(any(r['address']=='abcdef' for r in review['rows']))
 
     def test_maintenance_review_survives_archive_and_revision(self):
         pulse = MaintenanceStore(self.store)

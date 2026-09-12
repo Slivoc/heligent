@@ -70,6 +70,12 @@ are in [`docs/vps-deployment.md`](docs/vps-deployment.md).
 
 ## Phase 11 authoritative aircraft identity
 
+**Tools → Sources & coverage** now tracks register snapshots, source field
+completeness, company/approval imports and regional tail/type gaps. Each source
+has its own workspace, shared notes and review target. ADSBdb and HexDB support
+cached individual-hex checks; planned bulk and national-register adapters are
+labelled separately. See [the source tools guide](docs/source-tools.md).
+
 The Transport Canada adapter downloads and validates the official current
 Canadian Civil Aircraft Register (CCAR) ZIP, stores each immutable snapshot,
 and compares its registration, Mode S address, model and aircraft category to

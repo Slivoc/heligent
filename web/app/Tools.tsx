@@ -2,12 +2,16 @@
 import { useEffect, useState } from 'react';
 import './tools.css';
 import { Unidentified } from './Unidentified';
+import { SourceHub, type GapReview } from './SourceHub';
 
 type Preview = { preview_id:string; query: string; fetched_at: string; source_url: string; source_sha256: string; page: string; truncated: boolean; organisations: { name: string; approval: string; sites: { street: string; locality: string; ratings: { wording: string; models: string[] }[] }[] }[] };
 type ImportRecord = {id:number;finished_at:string;site_count:number;capability_count:number;metadata:{organisation:string;reviewed_by:string}};
 
 export function Tools({ onMappings, initialLba = false }: { onMappings: () => void; initialLba?: boolean }) {
-  const [tab, setTab] = useState(initialLba ? 'lba' : 'imports');
+  const [tab, setTab] = useState(initialLba ? 'lba' : (typeof window !== 'undefined' && window.location.hash === '#tools/unidentified' ? 'unidentified' : 'imports'));
+  const [gapReview,setGapReview] = useState<GapReview|undefined>();
+  const [hubRevision,setHubRevision] = useState(0);
+  function navigate(next:string){if(next==='imports')setHubRevision(n=>n+1);setTab(next);window.history.replaceState(null,'',next==='imports'?'#tools':`#tools/${next}`);}
   const [query, setQuery] = useState('ADAC');
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -20,11 +24,12 @@ export function Tools({ onMappings, initialLba = false }: { onMappings: () => vo
   const [historyError,setHistoryError] = useState('');
   const [historyRevision,setHistoryRevision] = useState(0);
   useEffect(()=>{
+    if(tab!=='lba')return;
     const c=new AbortController();
     fetch('/api/tools/lba/history',{signal:c.signal}).then(async r=>{if(!r.ok)throw new Error('Import history could not load');return r.json();})
       .then(v=>{if(!c.signal.aborted){setHistory(v);setHistoryError('');}}).catch(e=>{if(!c.signal.aborted)setHistoryError(e.message);});
     return ()=>c.abort();
-  },[historyRevision]);
+  },[historyRevision,tab]);
   useEffect(() => {
     const c = new AbortController();
     fetch('/api/auth/session', {signal:c.signal}).then(r => r.ok ? r.json() : null)
@@ -57,15 +62,13 @@ export function Tools({ onMappings, initialLba = false }: { onMappings: () => vo
     }catch(e){setError(String(e));}finally{setBusy(false);}
   }
   return <main className="tools-page">
-    <p className="eyebrow">Tools · Data stewardship</p><h1>Data imports & review</h1>
-    <p>A shared home for source adapters, repeatable updates and data-quality tools.</p>
-    <nav aria-label="Tools sections"><button onClick={() => setTab('imports')} aria-pressed={tab === 'imports'}>Data imports</button><button onClick={onMappings}>Capability mappings</button></nav>
-    <button onClick={() => setTab('unidentified')} aria-pressed={tab === 'unidentified'}>Hexes without tail numbers</button>
-    {tab === 'unidentified' ? <Unidentified /> : tab === 'imports' ? <>
-      <section className="tools-card"><span className="eyebrow">First adapter · Selected organisation import</span><h2>LBA technical organisations</h2><p>Inspect published approvals, operating sites, ratings and model wording. Start with ADAC Heliservice.</p><button onClick={() => setTab('lba')}>Open LBA preview</button></section>
-      <section className="tools-card"><h2>Recent LBA imports</h2>{historyError && <p role="alert">{historyError}</p>}{!history.length && !historyError && <p>No completed LBA imports.</p>}{history.map(h=><p key={h.id}><strong>{h.metadata.organisation}</strong> · batch {h.id} · {h.site_count} sites · {h.capability_count} capabilities added<br/>{h.finished_at} · {h.metadata.reviewed_by}</p>)}<p>Latest 25 completed imports. Changed repeat imports need a later update/merge workflow; existing records are not overwritten.</p></section>
+    <p className="eyebrow">Tools · Data stewardship</p><h1>Sources & data quality</h1>
+    <p>Track what we collect, what each source covers, and the identity gaps still needing attention.</p>
+    <nav aria-label="Tools sections"><button onClick={() => navigate('imports')} aria-pressed={tab === 'imports'}>Sources & coverage</button><button onClick={() => {setGapReview(undefined);navigate('unidentified');}} aria-pressed={tab === 'unidentified'}>Hexes without tail numbers</button><button onClick={onMappings}>Capability mappings</button></nav>
+    {tab === 'unidentified' ? <Unidentified key={JSON.stringify(gapReview)} initialReview={gapReview}/> : tab === 'imports' ? <>
+      <SourceHub key={hubRevision} canEdit={canEdit} initialSource={typeof window !== 'undefined' && window.location.hash.startsWith('#tools/source/') ? window.location.hash.slice(14) : ''} onSourceChange={code=>window.history.replaceState(null,'',code?`#tools/source/${encodeURIComponent(code)}`:'#tools')} onLba={()=>navigate('lba')} onReview={value=>{setGapReview(value);navigate('unidentified');}}/>
     </> : <section>
-      <button onClick={() => setTab('imports')}>Back to data imports</button><h2>LBA · Fetch and preview</h2>
+      <button onClick={() => navigate('imports')}>Back to sources & coverage</button><h2>LBA · Fetch and preview</h2>
       <p><a href="https://iauskunft.lba.de/tb/" target="_blank" rel="noreferrer">Open the LBA source directory</a></p>
       <p className="map-warning">Fetching saves a preview, not catalogue changes. Import only the organisation you choose and confirm. Existing fields are preserved; exact approval numbers or company names are used for matching. Publication is consent-based; absent results do not establish absence of approval.</p>
       <form onSubmit={e => {e.preventDefault(); void fetchPreview();}}><label>Organisation name<input value={query} onChange={e => setQuery(e.target.value)} minLength={3} maxLength={100} required disabled={busy} /></label><button disabled={busy || !canEdit}>{busy ? 'Fetching LBA…' : 'Fetch preview'}</button></form>
@@ -81,6 +84,7 @@ export function Tools({ onMappings, initialLba = false }: { onMappings: () => vo
         <p>Original rating and model wording is retained. No ICAO type mapping or airport coordinates are inferred.</p>
         {preview.organisations.map((o,i) => <section className="tools-card" key={i}><h3>{o.name}</h3><p>{o.approval}</p><button disabled={busy || !canEdit || preview.truncated} onClick={()=>{setChosen(i);setError('');setNotice('');}}>Import this organisation</button>{o.sites.filter(s => !baseOnly || s.ratings.some(r => /Base/i.test(r.wording))).map((s,j)=><details key={j}><summary>{s.street} · {s.locality} ({s.ratings.length} ratings)</summary>{s.ratings.map((r,k)=><article key={k}><h4>{r.wording}</h4><ul>{r.models.map((m,l)=><li key={l}>{m}</li>)}</ul></article>)}</details>)}</section>)}
       </>}
+      <section className="tools-card"><h3>Recent LBA imports</h3>{historyError && <p role="alert">{historyError}</p>}{!history.length && !historyError && <p>No completed LBA imports.</p>}{history.map(h=><p key={h.id}><strong>{h.metadata.organisation}</strong> · batch {h.id} · {h.site_count} sites · {h.capability_count} capabilities added<br/>{h.finished_at} · {h.metadata.reviewed_by}</p>)}</section>
     </section>}
   </main>;
 }

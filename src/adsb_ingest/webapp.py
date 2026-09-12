@@ -251,6 +251,7 @@ def create_app(
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase19.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase20.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase21.sql')
+        admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase22.sql')
     query_service = natural_language or SemanticNaturalLanguageAnalytics(analytics)
     worker = SequentialIngestionWorker(
         admin_store,
@@ -647,6 +648,39 @@ def create_app(
     def maintenance_watches():
         return jsonify(_json_ready(MaintenanceStore(admin_store).watches()))
 
+    @app.get('/api/tools/sources')
+    def tools_sources():
+        require_access_role('VIEWER')
+        from .source_tools import source_inventory
+        return jsonify(_json_ready(source_inventory(admin_store)))
+
+    @app.get('/api/tools/sources/<code>')
+    def tools_source_detail(code):
+        require_access_role('VIEWER')
+        from .source_tools import source_detail
+        return jsonify(_json_ready(source_detail(admin_store, code)))
+
+    @app.post('/api/tools/sources/<code>/settings')
+    def tools_source_settings(code):
+        actor = require_access_role('ANALYST')
+        from .source_tools import save_source_settings
+        return jsonify(save_source_settings(admin_store, code, request.get_json(), actor.email))
+
+    @app.post('/api/tools/sources/<code>/lookup')
+    def tools_source_lookup(code):
+        actor = require_access_role('ANALYST')
+        from .aircraft_lookup import lookup_aircraft
+        payload = request.get_json()
+        if not isinstance(payload, dict):
+            raise ValueError('Expected a hex lookup')
+        return jsonify(_json_ready(lookup_aircraft(admin_store, code, payload.get('address'), actor.email)))
+
+    @app.get('/api/tools/identity-gaps')
+    def tools_identity_gaps():
+        require_access_role('VIEWER')
+        from .source_tools import identity_gaps
+        return jsonify(_json_ready(identity_gaps(admin_store, request.args.get('from'), request.args.get('to'))))
+
     @app.get('/api/tools/unidentified')
     def unidentified_hexes():
         require_access_role('VIEWER')
@@ -654,7 +688,7 @@ def create_app(
         return jsonify(_json_ready(unidentified_activity(admin_store,
             request.args.get('from'), request.args.get('to'), int(request.args.get('offset','0')),
             request.args.get('category','ROTORCRAFT_UNKNOWN'), request.args.get('region','ALL'),
-            request.args.get('search',''))))
+            request.args.get('search',''), gap=request.args.get('gap','SOURCE_TAIL'))))
 
     @app.post('/api/tools/identity/preview')
     def identity_preview():

@@ -1,5 +1,11 @@
 # Tools / Data imports — first pass
 
+The current entry point is **Tools → Sources & coverage**. See
+[Sources and identity coverage](source-tools.md) for the source inventory,
+freshness, region gap report and individual ADSBdb/HexDB cross-references.
+The historical first-pass behavior below is superseded where that guide describes
+resolved-category filtering and additional missing-type review modes.
+
 ## Hexes without tail numbers
 
 Tools includes an unidentified-aircraft page. It ranks position-bearing daily records with NULL/blank registration by estimated airborne hours. The default is the latest processed week, with a maximum 31-day range and 50 hexes per page. It shows observed dates, positions, recorded types, up to 20 distinct callsigns, and the current aircraft registration separately. Totals include only the missing-registration days, not the aircraft's entire history. Records whose current registration is populated remain visible if historical daily metadata is missing. Callsigns are evidence for review, not automatic identity assignments. Failed/unprocessed dates are excluded and coverage is displayed.
