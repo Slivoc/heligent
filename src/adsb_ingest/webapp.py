@@ -48,6 +48,7 @@ MUTATION_MINIMUM_ROLE = {
     "tar1090_refresh": "ANALYST",
     "tar1090_preview": "ANALYST",
     "tar1090_identity": "ANALYST",
+    "tar1090_fill": "ANALYST",
     "tools_source_settings": "ANALYST",
     "tools_source_lookup": "ANALYST",
     "identity_preview": "ANALYST",
@@ -258,6 +259,7 @@ def create_app(
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase21.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase22.sql')
         admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase23.sql')
+        admin_store.apply_schema_once(Path(__file__).resolve().parents[2] / 'schema' / 'phase24.sql')
     query_service = natural_language or SemanticNaturalLanguageAnalytics(analytics)
     worker = SequentialIngestionWorker(
         admin_store,
@@ -712,6 +714,12 @@ def create_app(
         if action not in ('preview', 'assign'):
             abort(404)
         return jsonify(_json_ready(review_identity(admin_store, request.get_json(), actor.email, save=action == 'assign')))
+
+    @app.post('/api/tools/tar1090/fill')
+    def tar1090_fill():
+        actor = require_access_role('ANALYST')
+        from .tar1090 import fill_identity
+        return jsonify(_json_ready(fill_identity(admin_store, request.get_json(), actor.email)))
 
     @app.get('/api/tools/unidentified')
     def unidentified_hexes():

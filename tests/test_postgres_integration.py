@@ -71,6 +71,9 @@ class PostgresIntegrationTests(unittest.TestCase):
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase15.sql")
         cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase14.sql")
 
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase24.sql")
+        cls.store.apply_schema(Path(__file__).parents[1] / "schema" / "phase24.sql")
+
     def test_source_inventory_and_cached_lookup_evidence(self):
         from unittest.mock import patch
         from adsb_ingest.source_tools import source_inventory, source_detail, save_source_settings

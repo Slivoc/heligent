@@ -13,6 +13,7 @@ from hashlib import sha256
 from uuid import UUID, uuid4
 
 import requests
+from psycopg.errors import LockNotAvailable, QueryCanceled
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -286,6 +287,7 @@ def page(report, preview_id, params):
             and query in ' '.join([r['address'].upper(), (r.get('claim') or {}).get('registration') or '',
                                   (r.get('claim') or {}).get('type_code') or ''])]
     return {**report, 'preview_id': preview_id, 'rows': rows[offset:offset+50],
+            'eligible_addresses': [r['address'] for r in rows if r['reviewable']],
             'filtered_count': len(rows), 'offset': offset, 'has_more': len(rows) > offset+50, 'group': group}
 
 
@@ -302,15 +304,15 @@ def load_preview(store, preview_id):
 
 
 def preview_page(store, preview_id, params):
-    result = page(load_preview(store, preview_id), preview_id, params)
+    report = load_preview(store, preview_id)
     with store.connect() as c:
-        applied = {r[0] for r in c.execute('''SELECT DISTINCT address FROM aircraft_identity_review
-            WHERE address=ANY(%s) AND assignment->'evidence'->>'preview_id'=%s''',
-            ([r['address'] for r in result['rows']], preview_id))}
-    for row in result['rows']:
+        applied = {r[0]:r[1] for r in c.execute('''SELECT address,
+            assignment->'evidence'->>'mode' FROM aircraft_identity_review
+            WHERE assignment->'evidence'->>'preview_id'=%s''', (preview_id,))}
+    for row in report['rows']:
         if row['address'] in applied:
-            row.update(applied=True, reviewable=False)
-    return result
+            row.update(applied=True, reviewable=False, applied_mode=applied[row['address']])
+    return page(report, preview_id, params)
 
 
 def review_identity(store, payload, actor, save=False):
@@ -322,12 +324,43 @@ def review_identity(store, payload, actor, save=False):
     if not row or not row['reviewable']:
         raise ValueError('This candidate is not eligible for assignment; review its gaps or conflicts separately')
     claim, meta = row['claim'], report['metadata']
-    evidence = dict(source='TAR1090_DB', snapshot_id=report['snapshot_id'], preview_id=payload['preview_id'],
-                    sha256=meta['sha256'], csv_revision=meta['csv_revision'], source_date=meta['source_date'],
-                    types_sha256=meta['types_sha256'], types_revision=meta['types_revision'],
-                    category=row['category'], claim=claim)
+    evidence = identity_evidence(report, row, payload['preview_id'])
     # Tail/type/source fields are taken only from retained evidence, never the client.
     p = dict(address=row['address'], registration=claim['registration'], type_code=claim['type_code'],
              valid_from=payload.get('valid_from'), valid_to=payload['valid_to'], notes=payload['notes'],
              source_url=meta['source_url'], token=payload.get('token'))
     return assign_identity(store, p, actor, save=save, evidence=evidence)
+
+
+def identity_evidence(report, row, preview_id):
+    meta = report['metadata']
+    return dict(source='TAR1090_DB', snapshot_id=report['snapshot_id'], preview_id=preview_id,
+                    sha256=meta['sha256'], csv_revision=meta['csv_revision'], source_date=meta['source_date'],
+                    types_sha256=meta['types_sha256'], types_revision=meta['types_revision'],
+                    category=row['category'], claim=row['claim'])
+
+
+def fill_identity(store, payload, actor):
+    """One atomic item of the UI's bulk action; interruption/retry is safe."""
+    from .identity import assign_identity
+    if not isinstance(payload, dict) or type(payload.get('add_watch', True)) is not bool:
+        raise ValueError('Expected a source candidate and watchlist option')
+    report = load_preview(store, payload.get('preview_id'))
+    address = str(payload.get('address', '')).lower()
+    row = next((r for r in report['rows'] if r['address']==address), None)
+    if not row or not row['reviewable']:
+        return dict(address=address,status='SKIPPED',reason='No eligible source match; conflicting or incomplete identity')
+    claim = row['claim']
+    evidence = identity_evidence(report,row,payload['preview_id']) | {'mode':'BULK_PROVISIONAL'}
+    p = dict(address=address, registration=claim['registration'], type_code=claim['type_code'],
+             valid_from=report['from'], valid_to=report['to'], source_url=report['metadata']['source_url'],
+             notes='Provisional tar1090 fill for internal Maintenance Pulse testing. Dates use the comparison period; effective assignment dates have not been independently verified.')
+    try:
+        result = assign_identity(store,p,actor,save=True,evidence=evidence,provisional=True,
+                                 add_watch=payload.get('add_watch',True) and row['category']=='ROTORCRAFT')
+        return dict(result,address=address,registration=claim['registration'],
+                    status='ALREADY_APPLIED' if result['already_applied'] else 'FILLED')
+    except ValueError as exc:
+        return dict(address=address,status='SKIPPED',reason=str(exc))
+    except (QueryCanceled,LockNotAvailable):
+        return dict(address=address,status='FAILED',reason='Database was busy; retry this candidate')

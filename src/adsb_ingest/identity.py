@@ -34,8 +34,10 @@ def validate(payload):
     return dict(address=address,registration=registration,type_code=code,valid_from=start,valid_to=end,source_url=source,notes=notes)
 
 
-def assign_identity(store, payload, actor, save=False, *, evidence=None):
+def assign_identity(store, payload, actor, save=False, *, evidence=None, provisional=False, add_watch=False):
     p = validate(payload)
+    if provisional and (not save or not p['valid_to'] or not evidence or evidence.get('mode') != 'BULK_PROVISIONAL'):
+        raise ValueError('Provisional fills require a saved source comparison and a bounded period')
     if evidence is not None:
         p['evidence'] = evidence
     address,start,end = p['address'],p['valid_from'],p['valid_to']
@@ -45,6 +47,14 @@ def assign_identity(store, payload, actor, save=False, *, evidence=None):
         c.execute("SET LOCAL lock_timeout = '3s'")
         if save:
             c.execute('SELECT pg_advisory_xact_lock(714519)')
+        if provisional:
+            previous = c.execute('''SELECT 1 FROM aircraft_identity_review WHERE address=%s
+                AND assignment->'evidence'->>'preview_id'=%s
+                AND assignment->'evidence'->>'mode'='BULK_PROVISIONAL' LIMIT 1''',
+                (address, evidence['preview_id'])).fetchone()
+            if previous:
+                watch_id = _ensure_watch(c, p['registration'], actor) if add_watch else None
+                return dict(saved=True, already_applied=True, affected_days=0, watch_id=watch_id)
         aircraft = c.execute('SELECT address,registration,type_code,type_description FROM aircraft WHERE address=%s'+(' FOR UPDATE' if save else ''),(address,)).fetchone()
         if not aircraft:
             raise ValueError('Hex address is not present in the catalogue')
@@ -53,17 +63,23 @@ def assign_identity(store, payload, actor, save=False, *, evidence=None):
             current = (aircraft['registration'] or '').strip().upper().replace('-','')
             if current and current != p['registration'].replace('-',''):
                 raise ValueError('The current aircraft registration conflicts with this assignment; review identity first')
-        overlaps = c.execute('''SELECT 1 FROM aircraft_metadata_override WHERE
+        overlaps = c.execute('''SELECT * FROM aircraft_metadata_override WHERE
             (address=%s OR replace(upper(registration),'-','')=%s)
-            AND (valid_to IS NULL OR valid_to >= %s) AND (%s::date IS NULL OR valid_from <= %s) LIMIT 1''',
-            (address,p['registration'].replace('-',''),start,end,end)).fetchone()
-        if overlaps:
+            AND (valid_to IS NULL OR valid_to >= %s) AND (%s::date IS NULL OR valid_from <= %s)''',
+            (address,p['registration'].replace('-',''),start,end,end)).fetchall()
+        compatible = provisional and all(r['fill_missing_only'] and r['address']==address
+            and r['registration'].replace('-','')==p['registration'].replace('-','')
+            and r['type_code']==p['type_code'] and r['valid_to'] is not None for r in overlaps)
+        if overlaps and not compatible:
             raise ValueError('An overlapping identity override exists for this hex or registration; review it before assigning')
         rows = c.execute('''SELECT dataset_day_id,utc_date,address,registration,type_code,type_description
             FROM aircraft_day WHERE address=%s AND utc_date >= %s AND (%s::date IS NULL OR utc_date <= %s)
             ORDER BY utc_date,dataset_day_id LIMIT 10001'''+(' FOR UPDATE' if save else ''),(address,start,end,end)).fetchall()
         if not rows or len(rows)>10000:
             raise ValueError('Choose a range containing 1–10000 daily records')
+        if provisional and not any(not (r['registration'] or '').strip()
+                                   or p['type_code'] and not (r['type_code'] or '').strip() for r in rows):
+            raise ValueError('No missing identity fields remain in this period')
         norm = p['registration'].replace('-','')
         if any(r['registration'] and r['registration'].strip() and r['registration'].upper().replace('-','').strip()!=norm for r in rows):
             raise ValueError('This range already contains another registration; narrow the dates or review the conflict')
@@ -109,7 +125,7 @@ def assign_identity(store, payload, actor, save=False, *, evidence=None):
         fingerprint = sha256(json.dumps([p,rows,aircraft,resolved,registry],sort_keys=True,default=str).encode()).hexdigest()
         if not save:
             return dict(token=fingerprint,affected_days=len(rows),first_day=rows[0]['utc_date'],last_day=rows[-1]['utc_date'],assignment=p)
-        if payload.get('token') != fingerprint:
+        if not provisional and payload.get('token') != fingerprint:
             raise ValueError('Assignment or underlying records changed. Preview again before saving.')
         c.execute('INSERT INTO aircraft_identity_review(address,assignment,previous_rows,previous_aircraft,reviewed_by) VALUES (%s,%s,%s,%s,%s)',
             (address,Jsonb(json.loads(json.dumps(p,default=str))),Jsonb(json.loads(json.dumps(rows,default=str))),Jsonb(aircraft),actor))
@@ -117,12 +133,18 @@ def assign_identity(store, payload, actor, save=False, *, evidence=None):
             # A reviewed identity also makes its previously unknown type usable by
             # the normal helicopter filters. Preserve any existing known category.
             c.execute('''INSERT INTO aircraft_type_classification(type_code,category,classification_source,notes)
-                VALUES (%s,%s,'TAR1090_DB_REVIEW',%s) ON CONFLICT(type_code) DO UPDATE SET
+                VALUES (%s,%s,%s,%s) ON CONFLICT(type_code) DO UPDATE SET
                 category=excluded.category,classification_source=excluded.classification_source,
                 notes=excluded.notes,updated_at=now() WHERE aircraft_type_classification.category='UNKNOWN' ''',
-                (p['type_code'],evidence['category'],json.dumps(evidence,sort_keys=True)))
-        c.execute('''INSERT INTO aircraft_metadata_override(address,valid_from,valid_to,registration,type_code,source_url,notes)
-            VALUES (%s,%s,%s,%s,%s,%s,%s)''',(address,start,end,p['registration'],p['type_code'],p['source_url'],p['notes']))
+                (p['type_code'],evidence['category'],'TAR1090_DB_PROVISIONAL' if provisional else 'TAR1090_DB_REVIEW',json.dumps(evidence,sort_keys=True)))
+        override_start,override_end = start,end
+        if provisional and overlaps:
+            override_start = min(start,*(r['valid_from'] for r in overlaps))
+            override_end = max(end,*(r['valid_to'] for r in overlaps))
+            c.execute('DELETE FROM aircraft_metadata_override WHERE address=%s AND valid_from=ANY(%s)',
+                      (address,[r['valid_from'] for r in overlaps]))
+        c.execute('''INSERT INTO aircraft_metadata_override(address,valid_from,valid_to,registration,type_code,source_url,notes,fill_missing_only)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',(address,override_start,override_end,p['registration'],p['type_code'],p['source_url'],p['notes'],provisional))
         # Existing trigger applies the dated override to each historical row.
         c.execute('''UPDATE aircraft_day SET registration=registration WHERE address=%s
             AND utc_date>=%s AND (%s::date IS NULL OR utc_date<=%s)''',(address,start,end,end))
@@ -131,4 +153,40 @@ def assign_identity(store, payload, actor, save=False, *, evidence=None):
         if latest < start or (end and latest > end):
             c.execute('UPDATE aircraft SET registration=%s,type_code=%s,type_description=%s WHERE address=%s',
                 (aircraft['registration'],aircraft['type_code'],aircraft['type_description'],address))
+        if provisional:
+            _refresh_identity_cache(c, address, start, end)
+            watch_id = _ensure_watch(c, p['registration'], actor) if add_watch else None
+            return dict(saved=True, already_applied=False, affected_days=len(rows), watch_id=watch_id)
     return {'saved':True,'affected_days':len(rows),'message':'Identity saved. Reload the Stops map. Cached analytics and Sproutt reports require their normal refresh/sync.'}
+
+
+def _ensure_watch(c, tail, actor):
+    # Preserve existing analyst notes and reviews when adding/reactivating a watch.
+    return c.execute('''INSERT INTO maintenance_watch(watchlist_id,registration,notes,created_by)
+        SELECT id,%s,'Added from tar1090 provisional identity fill',%s
+        FROM maintenance_watchlist WHERE scope_key='internal'
+        ON CONFLICT(watchlist_id,registration) DO UPDATE SET active=true RETURNING id''',
+        (tail.replace('-', ''),actor)).fetchone()['id']
+
+
+def _refresh_identity_cache(c, address, start, end):
+    # Pulse's flight/visit views read this cache. Refresh just the affected aircraft
+    # and period in the same transaction, including rows not yet cached.
+    c.execute('''INSERT INTO nl_aircraft_activity_cache (
+        dataset_day_id,utc_date,address,registration,type_code,type_description,category,
+        observations,active_hours,airborne_hours,ground_active_hours,time_observed_hours,
+        distinct_airports,estimated_distance_nm,identity_source_code,identity_status,
+        registry_operator,registry_operator_country,registry_operator_region,registry_operator_source_code)
+        SELECT dataset_day_id,utc_date,address,registration,type_code,type_description,resolved_category::text,
+        observation_count,active_time_seconds/3600.0,airborne_time_seconds/3600.0,
+        ground_active_time_seconds/3600.0,time_observed_seconds/3600.0,distinct_airports,estimated_distance_nm,
+        identity_source_code,identity_status,registry_operator,registry_operator_country,
+        registry_operator_geographic_region,identity_source_code FROM aircraft_day_identity
+        WHERE address=%s AND utc_date BETWEEN %s AND %s AND resolved_category<>'GROUND_VEHICLE'
+        ON CONFLICT(dataset_day_id,address) DO UPDATE SET registration=excluded.registration,
+        type_code=excluded.type_code,type_description=excluded.type_description,category=excluded.category,
+        identity_source_code=excluded.identity_source_code,identity_status=excluded.identity_status,
+        registry_operator=excluded.registry_operator,registry_operator_country=excluded.registry_operator_country,
+        registry_operator_region=excluded.registry_operator_region,
+        registry_operator_source_code=excluded.registry_operator_source_code,refreshed_at=clock_timestamp()''',
+        (address,start,end))

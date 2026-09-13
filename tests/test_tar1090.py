@@ -29,13 +29,17 @@ class Tar1090Tests(unittest.TestCase):
         with patch.dict('os.environ',{'HELIGENT_AUTH_PROXY_SECRET':'s'*40,'HELIGENT_BOOTSTRAP_ADMIN_EMAILS':''}):
             client=create_app(**args,access_store=FakeAccessStore(),auth_mode='NGROK').test_client()
             h={'X-Heligent-Proxy-Secret':'s'*40,'X-Heligent-Auth-Email':'viewer@example.com','X-Requested-With':'HeligentAdmin'}
-            for path in ('refresh','preview','identity/preview','identity/assign'):
+            for path in ('refresh','preview','identity/preview','identity/assign','fill'):
                 self.assertEqual(client.post('/api/tools/tar1090/'+path,headers=h,json={}).status_code,403)
             h['X-Heligent-Auth-Email']='analyst@example.com'
             with patch('adsb_ingest.tar1090.refresh_snapshot',return_value={'status':'IMPORTED'}) as refresh:
                 self.assertEqual(client.post('/api/tools/tar1090/refresh',headers={k:v for k,v in h.items() if k!='X-Requested-With'},json={}).status_code,403)
                 refresh.assert_not_called()
                 self.assertEqual(client.post('/api/tools/tar1090/refresh',headers=h,json={}).status_code,200)
+            with patch('adsb_ingest.tar1090.fill_identity',return_value={'status':'FILLED'}) as fill:
+                self.assertEqual(client.post('/api/tools/tar1090/fill',headers={k:v for k,v in h.items() if k!='X-Requested-With'},json={}).status_code,403)
+                fill.assert_not_called()
+                self.assertEqual(client.post('/api/tools/tar1090/fill',headers=h,json={}).status_code,200)
 
     def test_real_csv_dialect_and_partial_claims(self):
         rows = list(aircraft_rows(csv_blob([['ABCDEF','G-TEST','PUMA','11000','Puma; "special"\\model','1999','Owner; name',''],
@@ -85,6 +89,7 @@ class Tar1090Tests(unittest.TestCase):
         report={'rows':[dict(row,address=f'{i:06x}') for i in range(60)]}
         self.assertEqual(len(page(report,'test',{})['rows']),50)
         self.assertEqual(len(page(report,'test',{'offset':'50'})['rows']),10)
+        self.assertEqual(len(page(report,'test',{'offset':'50'})['eligible_addresses']),60)
         self.assertEqual(page(report,'test',{'search':'G-TEST'})['filtered_count'],60)
 
     def test_download_pins_revisions_and_rejects_redirects(self):

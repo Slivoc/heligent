@@ -209,3 +209,16 @@ selection, observed-vs-elapsed evidence, repeat visits, catalogue filters, empty
 tails and mobile layout. It needs Playwright through Node resolution and a
 loopback static server on port 5089 (or `MAP_TEST_URL`). It is not a production
 dependency and does not test a real CARTO key or live receiver coverage.
+
+## Quickly populate the pilot from tar1090
+
+In **Tools ? Sources & coverage ? tar1090-db**, compare Europe's missing tails or
+types, then choose **Fill N identities** in the rotorcraft group. Leave **Add
+matched helicopters to Maintenance Pulse** checked to populate the watchlist.
+Dates and source notes are automatic. These are provisional community identities
+for the selected test period; the source evidence and changes remain recorded.
+
+Each successful fill updates the relevant activity cache immediately, including
+flight and airport-visit identities used by Pulse. Existing watch notes and reviews
+are preserved. Conflicting aircraft are skipped with reasons and retries preserve
+completed work. Migration phase24.sql is included in the usual update process.

@@ -46,7 +46,7 @@ CATALOG = [
            cadence='On-demand download pinned to published GitHub revisions',
            scope='Global community cross-reference; retained aircraft.csv.gz and ICAO type reference. Helicopter-first comparison against observed gaps.',
            limitations='Shares the Mictronics upstream: agreement between these two is not independent confirmation. Current metadata does not establish historical assignments.',
-           next_step='Download a reference snapshot, compare Europe gaps, then review individual candidates with verified effective dates.'),
+           next_step='Compare Europe gaps, then fill matching helicopters together for Maintenance Pulse. Dates and source notes are supplied automatically; individual date review is optional.'),
     source('MICTRONICS', 'Mictronics aircraft database', fields=('Hex', 'Tail', 'ICAO type', 'Description'),
            readiness='PLANNED', family='MICTRONICS', refresh_days=14,
            url='https://github.com/Mictronics/aircraft-database', cadence='Weekly exports (publisher statement)',

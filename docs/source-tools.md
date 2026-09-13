@@ -81,8 +81,8 @@ Per-record source revision dates remain unknown even after a successful lookup.
 ## Which sources to add next
 
 1. **tar1090-db** now has a bulk source workspace. Download pinned aircraft and
-   type references, compare observed gaps with rotorcraft first, and review dated
-   assignments individually. Revisions, hashes, original files, failed refreshes
+   type references, compare observed gaps with rotorcraft first, then fill matches together
+   for Maintenance Pulse. Individual date review remains optional. Revisions, hashes, original files, failed refreshes
    and saved comparisons are retained. [Tool workflow](tar1090-source-tool.md).
 2. **Mictronics** publishes JSON/ZIP exports under the Open Data Commons Attribution
    License and states a weekly export cadence. tar1090 uses this upstream, so these
@@ -119,7 +119,8 @@ boundary, retain input hashes and source dates, and expose it in its workspace.
 Do not silently convert a planned adapter into an active feed merely by adding a card.
 
 Migration **phase22.sql** adds shared source settings and lookup evidence, plus
-lookup-cache indexes. **phase23.sql** adds the tar1090 bulk evidence and comparisons. It is registered in normal startup and `heligent-migrate`.
+lookup-cache indexes. **phase23.sql** adds the tar1090 bulk evidence and comparisons. **phase24.sql**
+adds provisional fills that preserve reported identities on reingestion. It is registered in normal startup and `heligent-migrate`.
 Deploy the Python changes, migration and rebuilt SPA through the usual process.
 No archive reprocessing, new API credentials or Pi changes are needed. Deployment
 does not run imports or rewrite historical identities.

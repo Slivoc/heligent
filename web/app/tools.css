@@ -100,3 +100,8 @@
 .tar-evidence a,.tar-evidence code {display:block;overflow-wrap:anywhere;margin-top:6px}
 .tar-paging {display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}
 .tar1090-tool h4 {margin-top:28px}
+
+.tar-fill-panel {margin:20px 0;padding:20px;border:1px solid #a8c9bf;border-radius:12px;background:#f1f8f5}
+.tar-fill-panel h4 {margin-top:0}
+.tar-fill-panel .tools-check {margin:14px 0}
+.tar-fill-panel progress {width:min(300px,100%);margin-right:12px}

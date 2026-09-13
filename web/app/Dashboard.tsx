@@ -235,6 +235,11 @@ export function Dashboard() {
       : "ask",
   );
   const [month, setMonth] = useState(yesterday.slice(0, 7));
+  useEffect(() => {
+    const openPulse = () => { if (window.location.hash === '#pulse') setSurface('pulse'); };
+    window.addEventListener('hashchange', openPulse);
+    return () => window.removeEventListener('hashchange', openPulse);
+  }, []);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(yesterday);
   const [detail, setDetail] = useState<DateDetail | null>(null);
