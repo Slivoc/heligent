@@ -8,6 +8,7 @@ import { OperatorFleet } from "./OperatorFleet";
 import { EuropeHelicopters } from "./EuropeHelicopters";
 import { MaintenancePulse } from "./MaintenancePulse";
 import { FlightMap } from "./FlightMap";
+import { AircraftHistory } from "./AircraftHistory";
 import { Tools } from "./Tools";
 import { CapabilityMappings } from "./CapabilityMappings";
 
@@ -215,7 +216,8 @@ function monthShift(month: string, delta: number): string {
 export function Dashboard() {
   const [yesterday] = useState(isoYesterday);
   const [mappingCapability, setMappingCapability] = useState<number | null>(null);
-  const [surface, setSurface] = useState<"ask" | "analytics" | "helicopters" | "locations" | "operators" | "data" | "pulse" | "tracks" | "mappings" | "tools">(
+  const [lookupRoute, setLookupRoute] = useState(() => typeof window !== "undefined" ? window.location.hash : "");
+  const [surface, setSurface] = useState<"ask" | "analytics" | "helicopters" | "locations" | "operators" | "data" | "pulse" | "tracks" | "aircraft" | "mappings" | "tools">(
     () => typeof window !== "undefined"
       ? window.location.hash === "#customers"
         ? "locations"
@@ -227,7 +229,9 @@ export function Dashboard() {
           ? "tools"
         : window.location.hash === "#capability-mappings"
           ? "mappings"
-        : window.location.hash === "#tracks"
+        : window.location.hash.split("?")[0] === "#aircraft"
+          ? "aircraft"
+        : window.location.hash.split("?")[0] === "#tracks"
           ? "tracks"
         : window.location.hash === "#pulse"
           ? "pulse"
@@ -236,7 +240,13 @@ export function Dashboard() {
   );
   const [month, setMonth] = useState(yesterday.slice(0, 7));
   useEffect(() => {
-    const openPulse = () => { if (window.location.hash === '#pulse') setSurface('pulse'); };
+    const openPulse = () => {
+      const route = window.location.hash.split("?")[0];
+      if (route === '#pulse') setSurface('pulse');
+      if (route === '#aircraft' || route === '#tracks') {
+        setLookupRoute(window.location.hash); setSurface(route === '#aircraft' ? 'aircraft' : 'tracks');
+      }
+    };
     window.addEventListener('hashchange', openPulse);
     return () => window.removeEventListener('hashchange', openPulse);
   }, []);
@@ -371,7 +381,8 @@ export function Dashboard() {
           <button type="button" className={surface === "locations" ? "nav-active" : ""} onClick={() => setSurface("locations")}>Customers</button>
           <button type="button" className={surface === "operators" ? "nav-active" : ""} onClick={() => setSurface("operators")}>Operators</button>
           <button type="button" className={surface === "pulse" ? "nav-active" : ""} onClick={() => setSurface("pulse")}>Maintenance Pulse</button>
-          <button type="button" className={surface === "tracks" ? "nav-active" : ""} onClick={() => setSurface("tracks")}>Stops map</button>
+          <button type="button" className={surface === "aircraft" ? "nav-active" : ""} onClick={() => { setSurface("aircraft"); setLookupRoute("#aircraft"); window.history.replaceState(null, "", "#aircraft"); }}>Aircraft history</button>
+          <button type="button" className={surface === "tracks" ? "nav-active" : ""} onClick={() => { setSurface("tracks"); setLookupRoute("#tracks"); window.history.replaceState(null, "", "#tracks"); }}>Stops map</button>
           <button type="button" className={["tools","mappings"].includes(surface) ? "nav-active" : ""} onClick={() => setSurface("tools")}>Tools</button>
           <button type="button" className={surface === "data" ? "nav-active" : ""} onClick={() => setSurface("data")}>Data control</button>
         </nav>
@@ -384,7 +395,8 @@ export function Dashboard() {
       {surface === "locations" && <CustomerLocations />}
       {surface === "operators" && <OperatorFleet />}
       {surface === "pulse" && <MaintenancePulse />}
-      {surface === "tracks" && <FlightMap onReviewCapability={id => { setMappingCapability(id); setSurface("mappings"); }} />}
+      {surface === "aircraft" && <AircraftHistory key={lookupRoute} />}
+      {surface === "tracks" && <FlightMap key={lookupRoute} onReviewCapability={id => { setMappingCapability(id); setSurface("mappings"); }} />}
       {surface === "tools" && <Tools initialLba={typeof window !== "undefined" && window.location.hash === "#tools/lba"} onMappings={() => {setMappingCapability(null); setSurface("mappings");}} />}
       {surface === "mappings" && <CapabilityMappings key={mappingCapability ?? "search"} initialCapabilityId={mappingCapability} />}
       <div className="management-surface" hidden={surface !== "data"}>

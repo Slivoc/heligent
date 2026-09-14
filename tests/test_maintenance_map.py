@@ -27,7 +27,7 @@ class MapTests(unittest.TestCase):
     def test_routes_are_private_and_carto_is_image_only(self):
         app = create_app(start_worker=False, store=FakeAdminStore(), analytics_store=FakeAnalyticsStore(),
                          natural_language=FakeNaturalLanguage(), public_demo=True)
-        for path in ['map-config','watches/1/map']:
+        for path in ['map-config','watches/1/map','aircraft/G-SNSI/map','aircraft/G-SNSI/history']:
             self.assertEqual(app.test_client().get('/api/maintenance/'+path).status_code,404)
         with patch.dict('os.environ', {'HELIGENT_AUTH_PROXY_SECRET':'s'*40,'HELIGENT_BOOTSTRAP_ADMIN_EMAILS':'','HELIGENT_CARTO_BASEMAP_KEY':'tile-key'}):
             app = create_app(start_worker=False, store=FakeAdminStore(), analytics_store=FakeAnalyticsStore(),
@@ -42,3 +42,8 @@ class MapTests(unittest.TestCase):
             with patch('adsb_ingest.maintenance_map.map_data', return_value={'stops':[]}) as read:
                 self.assertEqual(client.get('/api/maintenance/watches/1/map?from=2026-08-01&to=2026-08-07',headers=headers).status_code,200)
                 self.assertEqual(read.call_args.args[1:],(1,'2026-08-01','2026-08-07'))
+                self.assertEqual(client.get('/api/maintenance/aircraft/G-SNSI/map',headers=headers).status_code,200)
+                self.assertEqual(read.call_args.kwargs,dict(tail='G-SNSI',start=None,end=None))
+            with patch('adsb_ingest.aircraft_history.history_data',return_value={'intervals':[]}) as read:
+                self.assertEqual(client.get('/api/maintenance/aircraft/G-SNSI/history?from=2026-08-01&to=2026-09-09',headers=headers).status_code,200)
+                self.assertEqual(read.call_args.args[1:],('G-SNSI','2026-08-01','2026-09-09'))

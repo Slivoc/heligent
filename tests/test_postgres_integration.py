@@ -348,6 +348,45 @@ class PostgresIntegrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             map_data(self.store,999999,'2026-08-20','2026-08-20')
 
+    def test_aircraft_history_without_watch_and_missing_date_coverage(self):
+        from adsb_ingest.aircraft_history import history_data
+        catalog, discovery, _ = self.fixture()
+        self.store.upsert_airports(catalog)
+        ids=[]
+        def cleanup():
+            with self.store.connect() as c:
+                c.execute('DELETE FROM dataset_day WHERE id=ANY(%s)',(ids,))
+        self.addCleanup(cleanup)
+        for utc_date, rows in [
+            (date(2026,6,1),[trace_row(36000,51.1,-1,1500,120),trace_row(36100,51,-1,'ground',0),trace_row(36160,51,-1,'ground',0)]),
+            (date(2026,6,21),[trace_row(36000,51,-1,'ground',0),trace_row(36060,51,-1,'ground',0),trace_row(36160,51.1,-1,1500,120)])]:
+            payload={'icao':'abc123','r':'G-REST','t':'H145','timestamp':datetime(utc_date.year,utc_date.month,utc_date.day,tzinfo=UTC).timestamp(),'trace':rows}
+            summary=summarize_trace(TracePayload('trace.json','abc123',100,500,payload),utc_date,AirportIndex(catalog.airports))
+            dataset=self.store.upsert_dataset(replace(discovery,utc_date=utc_date))
+            ids.append(dataset)
+            job=self.store.start_job(dataset,'PROCESS')
+            self.store.set_processing(dataset)
+            self.store.load_summaries(dataset,job,iter([summary]))
+        result=history_data(self.store,'g-rest','2026-06-01','2026-06-21')
+        closed=[g for g in result['intervals'] if not g['open_end']]
+        self.assertEqual(len(closed),1)
+        self.assertEqual(closed[0]['airport_ident'],'TEST')
+        self.assertTrue(closed[0]['ground_at_both_boundaries'])
+        self.assertEqual(closed[0]['processed_days'],2)
+        self.assertEqual(closed[0]['expected_days'],21)
+        self.assertEqual(closed[0]['mro_companies'],[])
+        self.assertIsNotNone(closed[0]['previous_flight'])
+        self.assertIsNotNone(closed[0]['next_flight'])
+        mapped=map_data(self.store,tail='g-rest',start='2026-06-01',end='2026-06-21')
+        self.assertEqual(mapped['registration'],'GREST')
+        self.assertIsNone(mapped['watch'])
+        self.assertEqual(len(mapped['stops']),2)
+        with self.store.connect() as c:
+            self.assertEqual(c.execute("SELECT count(*) FROM maintenance_watch WHERE registration='GREST'").fetchone()[0],0)
+        empty=history_data(self.store,'G-NODATA','2026-06-01','2026-06-21')
+        self.assertEqual(empty['intervals'],[])
+        self.assertEqual(empty['summary']['observed_days'],0)
+
     def test_lba_selected_import_is_atomic_and_repeatable(self):
         from adsb_ingest.lba_import import stage_preview,import_selection,import_history
         org={'name':'LBA Test Helicopters','approval':'DE.145.TESTLBA - gültig seit 01.09.2026','sites':[

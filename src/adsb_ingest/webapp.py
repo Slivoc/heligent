@@ -805,6 +805,18 @@ def create_app(
         return jsonify(_json_ready(map_data(admin_store, watch_id,
             request.args.get('from'), request.args.get('to'))))
 
+    @app.get('/api/maintenance/aircraft/<tail>/map')
+    def aircraft_map(tail):
+        from .maintenance_map import map_data
+        return jsonify(_json_ready(map_data(admin_store, tail=tail,
+            start=request.args.get('from'), end=request.args.get('to'))))
+
+    @app.get('/api/maintenance/aircraft/<tail>/history')
+    def aircraft_history(tail):
+        from .aircraft_history import history_data
+        return jsonify(_json_ready(history_data(admin_store, tail,
+            request.args.get('from'), request.args.get('to'))))
+
     @app.post('/api/maintenance/watches/<int:watch_id>/reviews')
     def maintenance_review(watch_id):
         user = request.environ['heligent.user']

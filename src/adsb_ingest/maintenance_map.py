@@ -3,6 +3,7 @@ from datetime import date, timedelta
 
 from psycopg.rows import dict_row
 from .capability_mappings import effective_mappings, model_phrase, normalize_phrase
+from .maintenance import registration
 
 
 def date_window(start, end, latest):
@@ -34,18 +35,23 @@ def capability_match(cap, type_code, today):
     return 'SITE_MATCH' if cap.get('company_site_id') is not None else 'COMPANY_MATCH'
 
 
-def map_data(store, watch_id, start=None, end=None):
+def map_data(store, watch_id=None, start=None, end=None, *, tail=None):
+    tail = registration(tail) if tail is not None else None
     with store.connect() as c:
         c.row_factory = dict_row
         c.execute("SET LOCAL statement_timeout = '15s'")
-        watch = c.execute('''SELECT w.* FROM maintenance_watch w
-            JOIN maintenance_watchlist l ON l.id=w.watchlist_id
-            WHERE w.id=%s AND l.scope_key='internal' ''', (watch_id,)).fetchone()
-        if watch is None:
-            raise ValueError('Watch not found')
+        watch = None
+        if watch_id is not None:
+            watch = c.execute('''SELECT w.* FROM maintenance_watch w
+                JOIN maintenance_watchlist l ON l.id=w.watchlist_id
+                WHERE w.id=%s AND l.scope_key='internal' ''', (watch_id,)).fetchone()
+            if watch is None:
+                raise ValueError('Watch not found')
+            tail = watch['registration']
+        if tail is None:
+            raise ValueError('Enter an aircraft registration')
         latest = c.execute("SELECT max(utc_date) AS day FROM dataset_day WHERE status='PROCESSED'").fetchone()['day']
         start, end = date_window(start, end, latest)
-        tail = watch['registration']
         # Match the registration recorded on that historical date, not today's owner.
         days = c.execute('''SELECT d.utc_date, d.address, d.type_code, d.type_description,
                 d.position_count, q.derivation_version
@@ -131,7 +137,7 @@ def map_data(store, watch_id, start=None, end=None):
         stop['number'] = number
         stop['evidence_span_seconds'] = max(0, int(
             (stop['last_evidence_at'] - stop['first_evidence_at']).total_seconds()))
-    return {'watch':watch,'from':start,'to':end,'latest_processed':latest,
+    return {'watch':watch,'registration':tail,'from':start,'to':end,'latest_processed':latest,
             'type_code':type_code,'type_codes':codes,'aircraft_days':days,
             'addresses':sorted({d['address'] for d in days}),
             'processed_days':processed,'expected_days':(end-start).days+1,

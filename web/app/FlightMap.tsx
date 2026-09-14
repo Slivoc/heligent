@@ -5,6 +5,7 @@ import type * as Leaflet from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./flight-map.css";
 import { orderedStops, maintenanceLeads } from './stopReview';
+import { normalizeTail, readTailSelection, tailHref } from './tailLookup';
 
 type Watch = { id: number; registration: string };
 type Stop = { number: number; dataset_day_id: number; address: string; visit_sequence: number; airport_ident: string; airport_name: string; latitude_deg: number; longitude_deg: number; first_evidence_at: string; last_evidence_at: string; arrived_at: string | null; departed_at: string | null; ground_time_seconds: number; evidence_span_seconds: number; confidence: string; ground_observation_count: number; proximity_observation_count: number; closest_distance_nm: number; arrival_evidence: string | null; departure_evidence: string | null; open_at_start: boolean; open_at_end: boolean; quality_flags: string[] };
@@ -12,7 +13,7 @@ type Approval = { id: number; approval_number: string; approval_status: string; 
 type Match = "SITE_MATCH" | "COMPANY_MATCH" | "POSSIBLE_FAMILY" | "STALE_MAPPING" | "APPROVAL_NOT_CURRENT" | "NO_RECORDED_MATCH";
 type Capability = Approval & { capability_id: number; mappings?: { variant_scope: string; notes: string; stale: boolean; origin?: string; active: boolean }[]; company_site_id: number | null; capability_kind: string; aircraft_type_code: string | null; manufacturer: string | null; model: string | null; limitation: string | null; rating_code: string | null; is_base_maintenance: boolean; is_line_maintenance: boolean; match: Match };
 type Site = { id: number; company_name: string; name: string; airport_ident: string | null; latitude_deg: number | null; longitude_deg: number | null; location_precision: string; capabilities: Capability[]; approvals: Approval[]; match: Match };
-type MapData = { watch: Watch; from: string; to: string; latest_processed: string | null; type_code: string | null; type_codes: string[]; addresses: string[]; processed_days: { utc_date: string; derivation_version: string | null }[]; expected_days: number; stops: Stop[]; sites: Site[]; stops_truncated: boolean; sites_truncated: boolean; capabilities_truncated: boolean; approval_as_of: string };
+type MapData = { watch: Watch | null; registration: string; from: string; to: string; latest_processed: string | null; type_code: string | null; type_codes: string[]; addresses: string[]; processed_days: { utc_date: string; derivation_version: string | null }[]; expected_days: number; stops: Stop[]; sites: Site[]; stops_truncated: boolean; sites_truncated: boolean; capabilities_truncated: boolean; approval_as_of: string };
 const labels: Record<Match, string> = { POSSIBLE_FAMILY: "Possible family / restricted variant match", STALE_MAPPING: "Mapping needs re-review", SITE_MATCH: "Site-specific type match", COMPANY_MATCH: "Company-wide type match only", APPROVAL_NOT_CURRENT: "Type recorded; approval not current", NO_RECORDED_MATCH: "No recorded type match" };
 const colors: Record<Match, string> = { POSSIBLE_FAMILY: "#d97706", STALE_MAPPING: "#c24154", SITE_MATCH: "#059669", COMPANY_MATCH: "#d97706", APPROVAL_NOT_CURRENT: "#c24154", NO_RECORDED_MATCH: "#64748b" };
 const stopId = (s: Stop) => `${s.dataset_day_id}:${s.address}:${s.visit_sequence}`;
@@ -29,11 +30,13 @@ async function get<T>(path: string, signal: AbortSignal): Promise<T> {
 }
 
 export function FlightMap({ onReviewCapability }: { onReviewCapability?: (id: number) => void }) {
+  const [initial] = useState(readTailSelection);
+  const [tail, setTail] = useState(initial.tail);
   const [watches, setWatches] = useState<Watch[]>([]);
   const [watchId, setWatchId] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [request, setRequest] = useState({ watch: "", from: "", to: "", revision: 0 });
+  const [from, setFrom] = useState(initial.from);
+  const [to, setTo] = useState(initial.to);
+  const [request, setRequest] = useState({ tail: initial.tail, from: initial.from, to: initial.to, revision: 0 });
   const [data, setData] = useState<MapData | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -52,30 +55,40 @@ export function FlightMap({ onReviewCapability }: { onReviewCapability?: (id: nu
   const leaflet = useRef<typeof Leaflet | null>(null);
   const [ready, setReady] = useState(false);
 
-  const load = useCallback((watch: string, start: string, end: string) => {
-    setBusy(Boolean(watch)); setError(""); setData(null); setSelectedStop("");
+  const load = useCallback((value: string, start: string, end: string) => {
+    let normalized: string;
+    try { normalized = normalizeTail(value); }
+    catch (e) { setError((e as Error).message); return; }
+    setBusy(true); setError(""); setData(null); setSelectedStop("");
     setSelectedSite(null);
-    setRequest(previous => ({ watch, from: start, to: end, revision: previous.revision + 1 }));
+    setTail(normalized);
+    setRequest(previous => ({ tail: normalized, from: start, to: end, revision: previous.revision + 1 }));
   }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    Promise.all([get<Watch[]>("watches", controller.signal), get<{ carto_key: string }>("map-config", controller.signal)])
-      .then(([items, config]) => {
-        setWatches(items); setKey(config.carto_key);
-        if (items.length) { setWatchId(String(items[0].id)); load(String(items[0].id), "", ""); }
-      }).catch(e => { if (!controller.signal.aborted) setError(e.message); });
+    get<Watch[]>("watches", controller.signal)
+      .then(items => { if (!controller.signal.aborted) setWatches(items); })
+      .catch(() => { /* Optional shortcuts must not prevent direct tail lookup. */ });
+    get<{ carto_key: string }>("map-config", controller.signal)
+      .then(config => { if (!controller.signal.aborted) setKey(config.carto_key); })
+      .catch(e => { if (!controller.signal.aborted) { setKey(""); setError(e.message); } });
     return () => controller.abort();
-  }, [load]);
+  }, []);
 
   useEffect(() => {
-    if (!request.watch) return;
+    if (!request.tail) return;
     const controller = new AbortController();
+    setBusy(true);
     const params = new URLSearchParams();
     if (request.from) params.set("from", request.from);
     if (request.to) params.set("to", request.to);
-    get<MapData>(`watches/${request.watch}/map?${params}`, controller.signal)
-      .then(result => { setData(result); setFrom(result.from); setTo(result.to); })
+    get<MapData>(`aircraft/${encodeURIComponent(request.tail)}/map?${params}`, controller.signal)
+      .then(result => {
+        if (controller.signal.aborted) return;
+        setData(result); setTail(result.registration); setFrom(result.from); setTo(result.to);
+        window.history.replaceState(null, "", tailHref("tracks", { tail: result.registration, from: result.from, to: result.to }));
+      })
       .catch(e => { if (!controller.signal.aborted) setError(e.message); })
       .finally(() => { if (!controller.signal.aborted) setBusy(false); });
     return () => controller.abort();
@@ -166,19 +179,20 @@ export function FlightMap({ onReviewCapability }: { onReviewCapability?: (id: nu
 
   return <main className="flight-map-page">
     <header><p className="eyebrow">Maintenance Pulse · Stop history</p><h1>Where has this aircraft been stopping?</h1><p>Existing airport visits, observed ground time and Part-145 capabilities. No flight-path recording or replay.</p></header>
-    <form className="map-controls" onSubmit={e => { e.preventDefault(); load(watchId, from, to); }}>
-      <label>Watched aircraft<select value={watchId} onChange={e => { setWatchId(e.target.value); load(e.target.value, from, to); }}><option value="">Select a tail</option>{watches.map(w => <option key={w.id} value={w.id}>{w.registration}</option>)}</select></label>
+    <form className="map-controls" onSubmit={e => { e.preventDefault(); load(tail, from, to); }}>
+      <label>Aircraft registration<input required value={tail} maxLength={16} onChange={e => { setTail(e.target.value); setWatchId(""); }} placeholder="e.g. G-SNSI" autoCapitalize="characters" spellCheck={false} /></label>
+      {watches.length > 0 && <label>Watched aircraft<select value={watchId} onChange={e => { setWatchId(e.target.value); const watch = watches.find(w => String(w.id) === e.target.value); if (watch) load(watch.registration, from, to); }}><option value="">Optional shortcut</option>{watches.map(w => <option key={w.id} value={w.id}>{w.registration}</option>)}</select></label>}
       <label>From (UTC)<input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label>
       <label>To (UTC)<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label>
-      <button className="button-primary" disabled={busy || !watchId}>{busy ? "Loading…" : "Load dates"}</button>
+      <button className="button-primary" disabled={busy || !tail.trim()}>{busy ? "Loading…" : "Load stops"}</button>
       <span>Up to 31 days · defaults to latest processed week</span>
     </form>
     {error && <p className="map-warning" role="alert">{error}</p>}
-    {!watches.length && !error && <p>Add aircraft in Maintenance Pulse to start exploring their existing stop history.</p>}
+    {!data && !busy && !error && <p>Enter any aircraft registration to explore its stop history. A watchlist entry is optional.</p>}
     {key === "" && <p className="map-warning">Basemap not configured. Set HELIGENT_CARTO_BASEMAP_KEY on the VPS to enable CARTO tiles. Stop and base layers still work.</p>}
     {tileError && <p className="map-warning" role="alert">CARTO tiles could not load. Check the basemap key, its permitted domain, and network access. Overlays remain available.</p>}
     {data && <>
-      <div className="map-stats"><strong>{data.watch.registration} · {data.type_code || (data.type_codes.length ? "Conflicting types" : "Type unknown")}</strong><span>{data.processed_days.length}/{data.expected_days} dates processed</span><span>{data.stops.length} stop records · {new Set(data.stops.map(s => s.airport_ident)).size} airports</span><span>{duration(data.stops.reduce((sum, s) => sum + s.ground_time_seconds, 0))} observed ground time in displayed records</span></div>
+      <div className="map-stats"><strong>{data.registration} · {data.type_code || (data.type_codes.length ? "Conflicting types" : "Type unknown")}</strong><span>{data.processed_days.length}/{data.expected_days} dates processed</span><span>{data.stops.length} stop records · {new Set(data.stops.map(s => s.airport_ident)).size} airports</span><span>{duration(data.stops.reduce((sum, s) => sum + s.ground_time_seconds, 0))} observed ground time in displayed records</span><a href={tailHref("aircraft", { tail: data.registration, from: "", to: data.to })}>View overnight and longer stays</a></div>
       <p className="map-note">Loaded {data.from} to {data.to} UTC. Addresses: {data.addresses.join(", ") || "none observed"}. Approval matching uses records current as of {data.approval_as_of}, not historical approval at visit time.</p>
       {data.addresses.length > 1 && <p className="map-warning">Multiple addresses recorded for this registration. Histories are connected separately; check identity before combining them.</p>}
       {!data.type_code && <p className="map-warning">{data.type_codes.length ? `Conflicting recorded types: ${data.type_codes.join(", ")}.` : "No recorded aircraft type in this date range."} Type matching is disabled.</p>}

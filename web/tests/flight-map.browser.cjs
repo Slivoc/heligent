@@ -9,7 +9,7 @@ const approval = { id: 1, approval_number: 'TEST.145.01', approval_status: 'VALI
 const capability = { ...approval, company_site_id: 1, capability_kind: 'AIRCRAFT', aircraft_type_code: 'EC45', model: 'H145', manufacturer: 'Airbus', limitation: 'Review the scope before booking maintenance.', rating_code: 'A3', is_base_maintenance: true, is_line_maintenance: false, match: 'SITE_MATCH' };
 const base = { id: 1, company_name: 'Fixture Rotor Engineering', name: 'Prestwick base', airport_ident: 'EGPK', latitude_deg: 55.51, longitude_deg: -4.59, location_precision: 'AIRPORT_CENTROID', capabilities: [capability], approvals: [approval], match: 'SITE_MATCH' };
 const stop = { number:1,dataset_day_id:1,address:'abcdef',visit_sequence:1,airport_ident:'EGPF',airport_name:'Glasgow',latitude_deg:55.87,longitude_deg:-4.43,first_evidence_at:'2026-08-20T10:00:00Z',last_evidence_at:'2026-08-20T10:10:00Z',arrived_at:null,departed_at:null,ground_time_seconds:300,evidence_span_seconds:600,confidence:'MEDIUM',ground_observation_count:20,proximity_observation_count:25,closest_distance_nm:0.1,arrival_evidence:null,departure_evidence:null,open_at_start:true,open_at_end:true,quality_flags:['coverage_gap'] };
-const data = { watch:{id:1,registration:'G-TEST'},from:'2026-08-20',to:'2026-08-26',latest_processed:'2026-08-26',type_code:'EC45',type_codes:['EC45'],addresses:['abcdef'],processed_days:[{utc_date:'2026-08-20',derivation_version:'flight-visits-v1'}],expected_days:7,
+const data = { registration:'G-TEST',watch:null,from:'2026-08-20',to:'2026-08-26',latest_processed:'2026-08-26',type_code:'EC45',type_codes:['EC45'],addresses:['abcdef'],processed_days:[{utc_date:'2026-08-20',derivation_version:'flight-visits-v1'}],expected_days:7,
   stops:[stop,{...stop,number:2,visit_sequence:2,airport_ident:'EGPK',airport_name:'Prestwick',latitude_deg:55.51,longitude_deg:-4.59,first_evidence_at:'2026-08-20T11:00:00Z',last_evidence_at:'2026-08-20T17:00:00Z',ground_time_seconds:1800,evidence_span_seconds:21600},
   {...stop,number:3,dataset_day_id:2,first_evidence_at:'2026-08-21T10:00:00Z',last_evidence_at:'2026-08-21T10:10:00Z',ground_observation_count:0,ground_time_seconds:0}],
   sites:[base,{...base,id:2,name:'Company scope only',match:'COMPANY_MATCH',capabilities:[{...capability,company_site_id:null,match:'COMPANY_MATCH'}]}],stops_truncated:false,sites_truncated:false,capabilities_truncated:false,approval_as_of:'2026-09-06' };
@@ -24,14 +24,16 @@ const data = { watch:{id:1,registration:'G-TEST'},from:'2026-08-20',to:'2026-08-
     await page.route('**/api/**', async r => {
       const path = new URL(r.request().url()).pathname;
       let body;
-      if (path === '/api/maintenance/watches') body=[data.watch,{id:2,registration:'G-EMPTY'}];
+      if (path === '/api/maintenance/watches') body=[{id:1,registration:'G-TEST'},{id:2,registration:'G-EMPTY'}];
       else if (path.endsWith('map-config')) body={carto_key:'synthetic-browser-test'};
-      else if (path === '/api/maintenance/watches/1/map') body=data;
-      else if (path === '/api/maintenance/watches/2/map') body={...data,watch:{id:2,registration:'G-EMPTY'},stops:[],type_code:null,type_codes:[],addresses:[],sites:data.sites.map(s=>({...s,match:'NO_RECORDED_MATCH',capabilities:[]}))};
+      else if (path === '/api/maintenance/aircraft/GTEST/map') body=data;
+      else if (path === '/api/maintenance/aircraft/GEMPTY/map') body={...data,registration:'G-EMPTY',stops:[],type_code:null,type_codes:[],addresses:[],sites:data.sites.map(s=>({...s,match:'NO_RECORDED_MATCH',capabilities:[]}))};
       else return r.fulfill({status:503,contentType:'application/json',body:'{"error":"Other page APIs not used in this fixture"}'});
       return r.fulfill({contentType:'application/json',body:JSON.stringify(body)});
     });
     await page.goto(url+'/#tracks');
+    await page.getByLabel('Aircraft registration',{exact:true}).fill('g-test');
+    await page.getByRole('button',{name:'Load stops',exact:true}).click();
     await page.getByText('G-TEST · EC45',{exact:true}).waitFor();
     await page.locator('.leaflet-container').waitFor();
     await page.evaluate(() => {
@@ -48,7 +50,7 @@ const data = { watch:{id:1,registration:'G-TEST'},from:'2026-08-20',to:'2026-08-
     assert.match(evidence,/30 min/);
     assert.match(evidence,/6.0 hr — not confirmed continuous time on site/);
     assert.equal(await page.locator('.map-base-list button').count(),2);
-    await page.getByRole('button', {name:/Fixture Rotor Engineering.*Prestwick base/}).click();
+    await page.locator('.map-base-list').getByRole('button', {name:/Fixture Rotor Engineering.*Prestwick base/}).click();
     await page.getByText('Marker is the airport centre, not the hangar.').waitFor();
     await page.getByRole('button',{name:/3\. EGPF/}).click();
     await page.getByText('Proximity-only evidence: no ground observations.',{exact:false}).waitFor();
