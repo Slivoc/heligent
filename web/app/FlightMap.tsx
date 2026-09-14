@@ -39,7 +39,7 @@ export function FlightMap({ onReviewCapability }: { onReviewCapability?: (id: nu
   const [request, setRequest] = useState({ tail: initial.tail, from: initial.from, to: initial.to, revision: 0 });
   const [data, setData] = useState<MapData | null>(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(Boolean(initial.tail));
   const [key, setKey] = useState<string | null>(null);
   const [tileError, setTileError] = useState(false);
   const [selectedStop, setSelectedStop] = useState("");
@@ -79,7 +79,6 @@ export function FlightMap({ onReviewCapability }: { onReviewCapability?: (id: nu
   useEffect(() => {
     if (!request.tail) return;
     const controller = new AbortController();
-    setBusy(true);
     const params = new URLSearchParams();
     if (request.from) params.set("from", request.from);
     if (request.to) params.set("to", request.to);

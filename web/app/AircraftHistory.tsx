@@ -33,7 +33,7 @@ export function AircraftHistory() {
   const [to, setTo] = useState(initial.to);
   const [query, setQuery] = useState({ ...initial, revision: 0 });
   const [data, setData] = useState<History | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(Boolean(initial.tail));
   const [error, setError] = useState("");
   const [selected, setSelected] = useState("");
   const [flightLimit, setFlightLimit] = useState(50);
@@ -41,14 +41,10 @@ export function AircraftHistory() {
   useEffect(() => {
     if (!query.tail) return;
     const controller = new AbortController();
-    setBusy(true); setError(""); setData(null); setFlightLimit(50);
-    let key: string;
-    try { key = normalizeTail(query.tail); }
-    catch (e) { setError((e as Error).message); setBusy(false); return; }
     const params = new URLSearchParams();
     if (query.from) params.set("from", query.from);
     if (query.to) params.set("to", query.to);
-    fetch(`/api/maintenance/aircraft/${encodeURIComponent(key)}/history?${params}`, { signal: controller.signal })
+    fetch(`/api/maintenance/aircraft/${encodeURIComponent(query.tail)}/history?${params}`, { signal: controller.signal })
       .then(async response => {
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Unable to load aircraft history");
@@ -73,7 +69,7 @@ export function AircraftHistory() {
 
   return <main className="aircraft-history">
     <header className="history-header"><p className="eyebrow">Aircraft intelligence</p><h1>Aircraft history</h1><p>Find overnight patterns, longer quiet windows and the evidence around them.</p></header>
-    <form className="history-search" onSubmit={e => { e.preventDefault(); try { const key = normalizeTail(tail); setQuery({ tail: key, from, to, revision: query.revision + 1 }); } catch (err) { setError((err as Error).message); } }}>
+    <form className="history-search" onSubmit={e => { e.preventDefault(); try { const key = normalizeTail(tail); setBusy(true); setError(""); setData(null); setFlightLimit(50); setQuery({ tail: key, from, to, revision: query.revision + 1 }); } catch (err) { setError((err as Error).message); } }}>
       <label>Aircraft registration<input required value={tail} maxLength={16} onChange={e => setTail(e.target.value)} placeholder="e.g. G-SNSI" autoCapitalize="characters" spellCheck={false} /></label>
       <label>From (UTC)<input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label>
       <label>To (UTC)<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label>

@@ -78,8 +78,8 @@ without reprocessing or extra coordinate retention. Verify MRO companies have ac
 
 ## Stops map (phase 17)
 
-Open **Stops map**, or the existing `/#tracks` bookmark. Choose a watched
-registration and UTC dates (default: latest processed week; maximum: 31 days).
+Open **Stops map**, or the existing `/#tracks` bookmark. Enter any
+registration (or choose a watched shortcut) and UTC dates (default: latest processed week; maximum: 31 days).
 The map reads existing airport-visit summaries, not individual ADS-B coordinates.
 
 Numbered stops are chronological within the displayed records. Repeated visits
@@ -222,3 +222,34 @@ Each successful fill updates the relevant activity cache immediately, including
 flight and airport-visit identities used by Pulse. Existing watch notes and reviews
 are preserved. Conflicting aircraft are skipped with reasons and retries preserve
 completed work. Migration phase24.sql is included in the usual update process.
+
+## Aircraft history
+
+Open **Aircraft history**, enter any registration and optionally select UTC dates.
+No watchlist entry is required or created. The default is up to 90 available days;
+a search can cover at most 366 days. Shareable links use
+`/#aircraft?tail=GSNSI&from=2026-08-01&to=2026-09-09`.
+
+The timeline distinguishes sightings, possible stays, unobserved days and missing
+source dates. Quiet windows of at least six hours join consecutive observed days
+for the same address and registration when matching airport visits reach within
+60 seconds of the daily observation boundaries. Intervening observations block
+the join. These are possible stays, not continuous ground reception or confirmed
+maintenance. Airports do not need a catalogue MRO entry.
+
+Inspect a window to compare its endpoint evidence, processed source dates, other
+aircraft activity at that airport, and available flights before and after it.
+Windows with no later sighting have an explicitly open end. Repeated locations
+and typical gap duration help distinguish routine overnight patterns. Existing
+internal maintenance reviews appear alongside the timeline; external information
+mentioned in conversation is not automatically stored as a review.
+
+**Open Stops map** carries the registration and dates across, limiting the map to
+the last 31 days when necessary. The map continues to show individual daily visits.
+Direct map bookmarks use `/#tracks?tail=GSNSI`.
+
+Authenticated read-only endpoints are
+`GET /api/maintenance/aircraft/<tail>/history` and
+`GET /api/maintenance/aircraft/<tail>/map`, with optional `from` and `to` parameters.
+Existing viewer access applies; public demo access remains blocked. This update
+uses existing summaries and reviews, with no migration or raw-data reprocessing.
