@@ -22,18 +22,35 @@ def source_inventory(store):
     catalog = {s['code']: deepcopy(s) for s in CATALOG}
     with store.connect() as c:
         c.row_factory = dict_row
+        c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         c.execute("SET LOCAL statement_timeout='10s'")
         for row in c.execute('SELECT * FROM aircraft_registry_source ORDER BY name').fetchall():
             entry = catalog.setdefault(row['code'], source(row['code'], row['name'],
                 countries=(row['country_code'],), scope='Registered national aircraft source.'))
             entry.update(license=row['data_license'], attribution=row['attribution'], enabled=row['active'])
-        companies = c.execute('''SELECT s.*, ARRAY(SELECT DISTINCT cs.country_code
-            FROM company_site_external_identifier e JOIN company_site cs ON cs.id=e.company_site_id
-            WHERE e.source_code=s.code AND e.active AND cs.country_code IS NOT NULL
-            ORDER BY cs.country_code) AS imported_countries,
-            ARRAY(SELECT DISTINCT heligent_world_region(cs.country_code)
-            FROM company_site_external_identifier e JOIN company_site cs ON cs.id=e.company_site_id
-            WHERE e.source_code=s.code AND e.active AND heligent_world_region(cs.country_code) IS NOT NULL) AS imported_regions
+        companies = c.execute('''WITH site_countries AS (
+            SELECT e.source_code,cs.country_code FROM company_site_external_identifier e
+            JOIN company_site cs ON cs.id=e.company_site_id WHERE e.active AND cs.active
+            UNION SELECT ac.source_code,cs.country_code FROM approval_capability ac
+            JOIN company_site cs ON cs.id=ac.company_site_id WHERE ac.active AND cs.active
+        ), company_countries AS (
+            SELECT e.source_code,co.country_code FROM company_external_identifier e
+            JOIN company co ON co.id=e.company_id WHERE e.active AND co.active
+            UNION SELECT ac.source_code,co.country_code FROM approval_capability ac
+            JOIN regulatory_approval r ON r.id=ac.regulatory_approval_id
+            JOIN company co ON co.id=r.company_id WHERE ac.active AND co.active
+        ), countries AS (SELECT * FROM site_countries UNION SELECT * FROM company_countries)
+            SELECT s.*, ARRAY(SELECT DISTINCT e.country_code FROM countries e
+            WHERE e.source_code=s.code AND e.country_code IS NOT NULL ORDER BY e.country_code) AS imported_countries,
+            ARRAY(SELECT DISTINCT e.country_code FROM site_countries e
+            WHERE e.source_code=s.code AND e.country_code IS NOT NULL ORDER BY e.country_code) AS imported_site_countries,
+            ARRAY(SELECT DISTINCT e.country_code FROM company_countries e
+            WHERE e.source_code=s.code AND e.country_code IS NOT NULL ORDER BY e.country_code) AS imported_company_countries,
+            ARRAY(SELECT DISTINCT heligent_world_region(e.country_code) FROM countries e
+            WHERE e.source_code=s.code AND heligent_world_region(e.country_code) IS NOT NULL) AS imported_regions,
+            (SELECT max(r.last_verified_at) FROM regulatory_approval r
+                WHERE EXISTS(SELECT 1 FROM approval_capability ac WHERE ac.regulatory_approval_id=r.id AND ac.source_code=s.code AND ac.active)
+                   OR EXISTS(SELECT 1 FROM regulatory_approval_external_identifier e WHERE e.regulatory_approval_id=r.id AND e.source_code=s.code AND e.active)) AS last_verified_at
             FROM company_data_source s ORDER BY s.name''').fetchall()
         for row in companies:
             if row['code'] in catalog and catalog[row['code']]['group'] != 'COMPANY':
@@ -43,10 +60,13 @@ def source_inventory(store):
                 fields=('Companies', 'Sites', 'Approvals', 'Capabilities', 'Assignments'),
                 match='Source identifiers', url=row['source_url'] or '',
                 scope='Imported company source; geographic scope has not been declared.',
-                limitations='Countries below describe imported sites only. They do not establish national coverage. Upstream snapshot dates are not recorded by the generic CSV importer.',
+                limitations='Imported site countries and company domiciles are separate evidence. Neither establishes national coverage. Upstream snapshot dates are not recorded by the generic CSV importer.',
                 next_step='Validate the source-specific mapping, then use the company CSV importer.',
                 command='heligent-companies validate-csv --file <mapped.csv>'))
-            entry.update(license=row['data_license'], imported_countries=row['imported_countries'])
+            entry.update(license=row['data_license'], imported_countries=row['imported_countries'],
+                         imported_site_countries=row['imported_site_countries'],
+                         imported_company_countries=row['imported_company_countries'],
+                         last_verified_at=row['last_verified_at'])
             if not entry['regions']:
                 region_codes = {'EUROPE':'EU', 'NORTH_AMERICA':'NA', 'SOUTH_AMERICA':'SA',
                                 'AFRICA':'AF', 'ASIA':'AS', 'OCEANIA':'OC', 'ANTARCTICA':'AN'}
@@ -61,7 +81,7 @@ def source_inventory(store):
             FROM aircraft_registry_import_batch) b WHERE rank<=25 OR status_rank=1 OR attempt_rank=1
             ORDER BY source_code,rank''').fetchall()
         company_batches = c.execute('''SELECT * FROM (
-            SELECT source_code,id,status,NULL::date AS snapshot_date, NULL::timestamptz AS fetched_at,
+            SELECT source_code,id,status,NULL::date AS snapshot_date, metadata->>'fetched_at' AS fetched_at,
                    finished_at AS imported_at,started_at,file_name,sha256,imported_rows AS rows,
                    company_count,site_count,capability_count,error_message,metadata,started_at AS attempted_at,
                    row_number() OVER (PARTITION BY source_code ORDER BY id DESC) AS rank,
@@ -116,6 +136,8 @@ def source_inventory(store):
             entry['last_fetched_at'] = entry['latest_preview']['fetched_at'] or entry['latest_preview']['created_at']
         entry['freshness'] = freshness(entry.get('snapshot_date'), entry['refresh_days'],
             has_evidence=bool(success or entry['lookups'] or entry.get('reference') or entry['latest_preview']))
+        entry['source_snapshot_date'] = entry.get('snapshot_date')
+        entry['source_published_at'] = (success.get('metadata') or {}).get('published_at') if success else None
         entry['has_import'] = bool(success or entry.get('reference'))
         attempt = max(evidence, key=lambda b: b['attempted_at'], default=None)
         entry['latest_failed'] = bool(attempt and attempt['status'] == 'FAILED'
