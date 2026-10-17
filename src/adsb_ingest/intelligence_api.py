@@ -809,6 +809,7 @@ def create_intelligence_api(
     *,
     token: str | None = None,
     service: IntelligenceService | Any | None = None,
+    maintenance_service: Any | None = None,
     trusted_proxy_count: int = 0,
 ) -> Flask:
     token_from_environment = token is None
@@ -924,6 +925,28 @@ def create_intelligence_api(
     @app.get("/api/v1/coverage")
     def coverage() -> dict[str, Any]:
         return {"data": _json_ready(service.availability())}
+
+    def maintenance_catalog():
+        from .maintenance_catalog import MaintenanceCatalog
+        return maintenance_service or MaintenanceCatalog(service.store)
+
+    @app.get('/api/v1/companies')
+    def maintenance_companies():
+        from .maintenance_catalog import validate_parameters
+        validate_parameters(request.args, ('query','role','country','site_country','source','authority','kind','cursor','limit'))
+        return _json_ready(maintenance_catalog().companies(**request.args.to_dict()))
+
+    @app.get('/api/v1/companies/<int:company_id>/maintenance-capabilities')
+    def company_maintenance_capabilities(company_id):
+        from .maintenance_catalog import validate_parameters
+        validate_parameters(request.args, ('kind','cursor','limit'))
+        return _json_ready(maintenance_catalog().capabilities(company_id, **request.args.to_dict()))
+
+    @app.get('/api/v1/maintenance-coverage')
+    def maintenance_coverage():
+        from .maintenance_catalog import validate_parameters
+        validate_parameters(request.args, ('source','authority','kind','geography'))
+        return _json_ready(maintenance_catalog().coverage(**request.args.to_dict()))
 
     def activity_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         availability = service.availability()

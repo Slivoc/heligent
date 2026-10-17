@@ -242,6 +242,8 @@ export function Dashboard() {
   useEffect(() => {
     const openPulse = () => {
       const route = window.location.hash.split("?")[0];
+      if (route === '#tools' || route.startsWith('#tools/')) setSurface('tools');
+      if (route === '#capability-mappings') setSurface('mappings');
       if (route === '#pulse') setSurface('pulse');
       if (route === '#aircraft' || route === '#tracks') {
         setLookupRoute(window.location.hash); setSurface(route === '#aircraft' ? 'aircraft' : 'tracks');
@@ -383,7 +385,7 @@ export function Dashboard() {
           <button type="button" className={surface === "pulse" ? "nav-active" : ""} onClick={() => setSurface("pulse")}>Maintenance Pulse</button>
           <button type="button" className={surface === "aircraft" ? "nav-active" : ""} onClick={() => { setSurface("aircraft"); setLookupRoute("#aircraft"); window.history.replaceState(null, "", "#aircraft"); }}>Aircraft history</button>
           <button type="button" className={surface === "tracks" ? "nav-active" : ""} onClick={() => { setSurface("tracks"); setLookupRoute("#tracks"); window.history.replaceState(null, "", "#tracks"); }}>Stops map</button>
-          <button type="button" className={["tools","mappings"].includes(surface) ? "nav-active" : ""} onClick={() => setSurface("tools")}>Tools</button>
+          <button type="button" className={["tools","mappings"].includes(surface) ? "nav-active" : ""} onClick={() => { window.history.pushState(null, "", "#tools"); window.dispatchEvent(new HashChangeEvent('hashchange')); setSurface("tools"); }}>Tools</button>
           <button type="button" className={surface === "data" ? "nav-active" : ""} onClick={() => setSurface("data")}>Data control</button>
         </nav>
         <div className="system-state"><span className={`state-light ${current ? "state-working" : ""}`} />{current ? "Pipeline active" : "Pipeline ready"}</div>

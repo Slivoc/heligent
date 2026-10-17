@@ -3,7 +3,7 @@ const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 (async () => {
-  const browser = await chromium.launch({headless:true});
+  const browser = await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHANNEL?{channel:process.env.PLAYWRIGHT_CHANNEL}:{})});
   try {
     const page = await browser.newPage({viewport:{width:1400,height:1000}});
     const errors = [];
@@ -26,8 +26,7 @@ const fs = require('node:fs/promises');
       }
       return r.fulfill({status:503,json:{error:'Unused fixture API'}});
     });
-    await page.goto('http://127.0.0.1:5089/#tools');
-    await page.getByRole('button',{name:'Open LBA preview'}).click();
+    await page.goto('http://127.0.0.1:5089/#tools/lba');
     await page.getByRole('button',{name:'Fetch preview',exact:true}).click();
     await page.getByText('Fixture Heliservice',{exact:true}).waitFor();
     assert.equal(await page.locator('.tools-card details').count(),2);

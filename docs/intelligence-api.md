@@ -132,6 +132,89 @@ helicopter-only daily totals plus ranked tails and types. These are useful for
 interactive and compatibility reports; use the category-neutral daily endpoint
 for Sproutt persistence.
 
+## Maintenance organisations, recorded scopes and geographic coverage
+
+These operations use the same bearer authentication as activity endpoints and
+execute bounded, repeatable-read, read-only database transactions. They perform
+no downloads, source imports, geocoding or mapping edits. They describe today's
+recorded approval status and validity, with separate source-verification dates;
+historical `as_of` and other unknown query parameters are rejected.
+
+- `GET /api/v1/companies?query=ADAC&role=MRO&country=DE&limit=50`
+- `GET /api/v1/companies/123/maintenance-capabilities?kind=ALL&limit=100`
+- `GET /api/v1/maintenance-coverage?kind=ALL&geography=site_country`
+
+The company search returns `data` as an array of stable `id`, `name`,
+`legal_name`, `trading_name`, `country_code`, `is_mro` and `approval_count`.
+It includes active companies with recorded Part-145 scope, even if an older
+import omitted the company's MRO flag. Aliases are searchable. `country` means
+company domicile; `site_country` requires a recorded physical-site country and
+never falls back to domicile. Optional `source`, `authority` and `kind` filters
+require matching active scope records. AOC scope is excluded throughout.
+
+The capabilities response has `data.company`, `data.capabilities` and
+`data.kind_counts`. Each row preserves the capability/approval IDs, source code,
+authority/number, recorded status and validity dates, `approval_current`,
+verification date, source URL, rating, model/manufacturer/limitation wording,
+base/line flags and raw source aircraft code. `scope_level` is `COMPANY` or
+`SITE`; `site` is null or the particular recorded site. Company-wide scope is
+never promoted to every facility.
+
+`mappings` retains effective local/shared interpretations, review level,
+restrictions, review dates/evidence, active and stale flags. Internal reviewer
+identities, notes and stored audit snapshots are omitted. A local override wins
+even if withdrawn or stale. `type_interpretation` is `SOURCE_CODE`,
+`REVIEWED_TYPE`, `POSSIBLE_FAMILY` or `UNMAPPED`; this describes the wording
+interpretation, not verified certification. A reviewed restricted variant
+remains a possible family for type-wide presentation. Always retain the raw
+wording and evaluate approval currency separately. Missing mappings are missing
+evidence, not evidence that the company cannot maintain a type.
+
+`kind` supports `AIRCRAFT`, `ENGINE`, `COMPONENT`, `SPECIALIST`, `SERVICE`,
+`OTHER` and `ALL`. Capability lists default to `AIRCRAFT`; directory and coverage
+default to `ALL`. `limit` is 1–500. Directory and capability lists paginate by
+stable increasing ID using the returned opaque `meta.next_cursor` (null ends
+the list). Every response includes `meta.dataset_revision`; a consumer must
+restart a multi-page read if this changes. It fingerprints catalogue content,
+including mapping withdrawals, rather than the fetch time. Capabilities and
+coverage also return `meta.generated_at`. Missing/inactive companies return 404.
+
+Coverage returns `data.totals`, `countries`, `sources`, `unlocated` and
+`definitions`. `geography=site_country` uses only the recorded physical-site
+country; `company_country` explicitly shows company domicile instead. Countries
+with no imported scope are absent; this never establishes national completeness.
+Unlocated includes records missing the chosen geography. Source and authority
+filters apply to counts as well as country rows. Country rows include
+`source_codes` and `authority_codes`; source rows separate import, fetch,
+source-snapshot and approval-verification dates. A missing source-snapshot date
+stays null even when the data was recently imported or verified.
+
+Each count object contains distinct companies, approvals, current approvals,
+sites, capability rows, aircraft capability rows, site/company capability rows,
+distinct interpreted type codes, mapped/unmapped aircraft rows, coordinate sites
+and airport-linked sites. Family interpretations count as mapped, with their
+restrictions retained in the detail response. Distinct counts cannot be added
+across countries or sources. Current status, mapping coverage and freshness are
+separate signals; none confirms the tooling, check privileges or availability
+for a particular maintenance job.
+
+The authenticated Heligent Tools UI uses equivalent viewer-protected GET paths:
+`/api/tools/maintenance/companies`,
+`/api/tools/maintenance/companies/{id}/capabilities` and
+`/api/tools/maintenance/coverage`. These are unavailable in public-demo mode.
+
+Run focused boundary and isolated PostgreSQL checks with:
+
+```powershell
+$env:PYTHONPATH = 'C:\path\to\heligent\src'
+$env:HELIGENT_TEST_DATABASE_URL = 'postgresql://postgres@127.0.0.1:55432/heligent_test'
+python -m unittest discover -s tests -p test_maintenance_catalog.py -v
+```
+
+Integration tests require a dedicated local database with `test` in its name.
+They create and remove their own randomized schema, and never use production
+tables. No schema migration or reimport is required for these endpoints.
+
 ## Categories and regions
 
 Categories are `ALL`, `ROTORCRAFT`, `FIXED_WING`, `GLIDER`, `BALLOON`, `UAV`,

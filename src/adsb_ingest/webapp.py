@@ -662,6 +662,28 @@ def create_app(
         from .source_tools import source_inventory
         return jsonify(_json_ready(source_inventory(admin_store)))
 
+    def maintenance_catalog_request(operation, allowed, *args):
+        require_access_role('VIEWER')
+        from .maintenance_catalog import MaintenanceCatalog, validate_parameters
+        validate_parameters(request.args, allowed)
+        try:
+            result = getattr(MaintenanceCatalog(admin_store), operation)(*args, **request.args.to_dict())
+        except LookupError as exc:
+            return jsonify({'error':str(exc)}), 404
+        return jsonify(_json_ready(result))
+
+    @app.get('/api/tools/maintenance/companies')
+    def tools_maintenance_companies():
+        return maintenance_catalog_request('companies', ('query','role','country','site_country','source','authority','kind','cursor','limit'))
+
+    @app.get('/api/tools/maintenance/companies/<int:company_id>/capabilities')
+    def tools_maintenance_capabilities(company_id):
+        return maintenance_catalog_request('capabilities', ('kind','cursor','limit'), company_id)
+
+    @app.get('/api/tools/maintenance/coverage')
+    def tools_maintenance_coverage():
+        return maintenance_catalog_request('coverage', ('source','authority','kind','geography'))
+
     @app.get('/api/tools/sources/<code>')
     def tools_source_detail(code):
         require_access_role('VIEWER')

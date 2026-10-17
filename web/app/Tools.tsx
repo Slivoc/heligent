@@ -1,17 +1,45 @@
 "use client";
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import './tools.css';
 import { Unidentified } from './Unidentified';
-import { SourceHub, type GapReview } from './SourceHub';
+import { SourceHub, type GapReview, type SourcePurpose } from './SourceHub';
+import { MaintenanceApprovals } from './MaintenanceApprovals';
 
 type Preview = { preview_id:string; query: string; fetched_at: string; source_url: string; source_sha256: string; page: string; truncated: boolean; organisations: { name: string; approval: string; sites: { street: string; locality: string; ratings: { wording: string; models: string[] }[] }[] }[] };
 type ImportRecord = {id:number;finished_at:string;site_count:number;capability_count:number;metadata:{organisation:string;reviewed_by:string}};
+type ToolsPage = 'maintenance' | 'identity' | 'activity' | 'reference' | 'unidentified' | 'lba' | 'source';
+type ToolsRoute = {page:ToolsPage;source?:string;purpose?:SourcePurpose};
+const pagePurposes:Partial<Record<ToolsPage,SourcePurpose>> = {maintenance:'COMPANY',lba:'COMPANY',identity:'IDENTITY',unidentified:'IDENTITY',activity:'ACTIVITY',reference:'REFERENCE'};
+const purposePages:Record<SourcePurpose,ToolsPage> = {COMPANY:'maintenance',IDENTITY:'identity',ACTIVITY:'activity',REFERENCE:'reference'};
+const pageLabels = {maintenance:'Maintenance approvals',identity:'Aircraft identity',activity:'Activity ingestion',reference:'Reference data'};
+function toolsRoute(initialLba=false):ToolsRoute {
+  if(typeof window==='undefined')return {page:initialLba?'lba':'maintenance'};
+  const hash=window.location.hash;
+  if(hash.startsWith('#tools/source/')){
+    try{return {page:'source',source:decodeURIComponent(hash.slice(14))};}catch{return {page:'maintenance'};}
+  }
+  const suffix=hash.slice(7);
+  if(['identity','activity','reference','unidentified','lba'].includes(suffix))return {page:suffix as ToolsPage};
+  return {page:initialLba&&hash==='#tools/lba'?'lba':'maintenance'};
+}
+function toolsHash(route:ToolsRoute){return route.page==='source'?`#tools/source/${encodeURIComponent(route.source||'')}`:route.page==='maintenance'?'#tools':`#tools/${route.page}`;}
 
 export function Tools({ onMappings, initialLba = false }: { onMappings: () => void; initialLba?: boolean }) {
-  const [tab, setTab] = useState(initialLba ? 'lba' : (typeof window !== 'undefined' && window.location.hash === '#tools/unidentified' ? 'unidentified' : 'imports'));
+  const [route,setRoute] = useState<ToolsRoute>(()=>toolsRoute(initialLba));
+  const tab=route.page;
   const [gapReview,setGapReview] = useState<GapReview|undefined>();
-  const [hubRevision,setHubRevision] = useState(0);
-  function navigate(next:string){if(next==='imports')setHubRevision(n=>n+1);setTab(next);window.history.replaceState(null,'',next==='imports'?'#tools':`#tools/${next}`);}
+  function navigate(next:ToolsRoute){
+    const hash=toolsHash(next);
+    if(window.location.hash!==hash)window.history.pushState(null,'',hash);
+    setRoute(next);
+  }
+  function openMappings(){window.history.pushState(null,'','#capability-mappings');onMappings();}
+  const resolvePurpose=useCallback((purpose:SourcePurpose)=>setRoute(previous=>previous.page==='source'&&previous.purpose!==purpose?{...previous,purpose}:previous),[]);
+  useEffect(()=>{
+    const changed=()=>setRoute(toolsRoute());
+    window.addEventListener('hashchange',changed);window.addEventListener('popstate',changed);
+    return()=>{window.removeEventListener('hashchange',changed);window.removeEventListener('popstate',changed);};
+  },[]);
   const [query, setQuery] = useState('ADAC');
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -61,14 +89,19 @@ export function Tools({ onMappings, initialLba = false }: { onMappings: () => vo
       setChosen(null);setHistoryRevision(n=>n+1);
     }catch(e){setError(String(e));}finally{setBusy(false);}
   }
-  return <main className="tools-page">
-    <p className="eyebrow">Tools · Data stewardship</p><h1>Sources & data quality</h1>
-    <p>Track what we collect, what each source covers, and the identity gaps still needing attention.</p>
-    <nav aria-label="Tools sections"><button onClick={() => navigate('imports')} aria-pressed={tab === 'imports'}>Sources & coverage</button><button onClick={() => {setGapReview(undefined);navigate('unidentified');}} aria-pressed={tab === 'unidentified'}>Hexes without tail numbers</button><button onClick={onMappings}>Capability mappings</button></nav>
-    {tab === 'unidentified' ? <Unidentified key={JSON.stringify(gapReview)} initialReview={gapReview}/> : tab === 'imports' ? <>
-      <SourceHub key={hubRevision} canEdit={canEdit} initialSource={typeof window !== 'undefined' && window.location.hash.startsWith('#tools/source/') ? window.location.hash.slice(14) : ''} onSourceChange={code=>window.history.replaceState(null,'',code?`#tools/source/${encodeURIComponent(code)}`:'#tools')} onLba={()=>navigate('lba')} onReview={value=>{setGapReview(value);navigate('unidentified');}}/>
-    </> : <section>
-      <button onClick={() => navigate('imports')}>Back to sources & coverage</button><h2>LBA · Fetch and preview</h2>
+  const activePurpose=pagePurposes[tab]||route.purpose;
+  return <div className="tools-page tools-shell">
+    <aside className="tools-sidebar">
+      <p className="eyebrow">Tools</p><p className="tools-sidebar-caption">Data stewardship</p>
+      <nav aria-label="Tools pages">{Object.entries(pageLabels).map(([page,label])=><button key={page} type="button" onClick={()=>navigate({page:page as ToolsPage})} aria-current={activePurpose===pagePurposes[page as ToolsPage]?'page':undefined}>{label}</button>)}</nav>
+      <nav className="tools-review-nav" aria-label="Data review tools"><button type="button" onClick={()=>{setGapReview(undefined);navigate({page:'unidentified'});}} aria-current={tab==='unidentified'?'page':undefined}>Hexes without tail numbers</button><button type="button" onClick={()=>navigate({page:'lba'})} aria-current={tab==='lba'?'page':undefined}>LBA import preview</button><button type="button" onClick={openMappings}>Capability mappings</button></nav>
+    </aside>
+    <div className="tools-workspace">
+    {tab==='maintenance'?<MaintenanceApprovals onMappings={openMappings} onSource={code=>navigate({page:'source',source:code,purpose:'COMPANY'})}/>:tab === 'unidentified' ? <Unidentified key={JSON.stringify(gapReview)} initialReview={gapReview}/> : tab !== 'lba' ? <>
+      {tab!=='source'&&<header className="tools-page-heading"><p className="eyebrow">Tools · Data stewardship</p><h1>{pageLabels[tab as keyof typeof pageLabels]}</h1></header>}
+      <SourceHub key={`${tab}-${route.source||''}`} canEdit={canEdit} purpose={activePurpose} initialSource={route.source||''} onPurposeResolved={resolvePurpose} onSourceChange={code=>navigate(code?{page:'source',source:code,purpose:activePurpose}:{page:purposePages[activePurpose||'COMPANY']})} onLba={()=>navigate({page:'lba'})} onReview={value=>{setGapReview(value);navigate({page:'unidentified'});}}/>
+    </> : <section className="tools-lba-workspace">
+      <button onClick={() => navigate({page:'maintenance'})}>Back to Maintenance approvals</button><p className="eyebrow">Maintenance approval source</p><h1>LBA · Fetch and preview</h1>
       <p><a href="https://iauskunft.lba.de/tb/" target="_blank" rel="noreferrer">Open the LBA source directory</a></p>
       <p className="map-warning">Fetching saves a preview, not catalogue changes. Import only the organisation you choose and confirm. Existing fields are preserved; exact approval numbers or company names are used for matching. Publication is consent-based; absent results do not establish absence of approval.</p>
       <form onSubmit={e => {e.preventDefault(); void fetchPreview();}}><label>Organisation name<input value={query} onChange={e => setQuery(e.target.value)} minLength={3} maxLength={100} required disabled={busy} /></label><button disabled={busy || !canEdit}>{busy ? 'Fetching LBA…' : 'Fetch preview'}</button></form>
@@ -86,5 +119,6 @@ export function Tools({ onMappings, initialLba = false }: { onMappings: () => vo
       </>}
       <section className="tools-card"><h3>Recent LBA imports</h3>{historyError && <p role="alert">{historyError}</p>}{!history.length && !historyError && <p>No completed LBA imports.</p>}{history.map(h=><p key={h.id}><strong>{h.metadata.organisation}</strong> · batch {h.id} · {h.site_count} sites · {h.capability_count} capabilities added<br/>{h.finished_at} · {h.metadata.reviewed_by}</p>)}</section>
     </section>}
-  </main>;
+    </div>
+  </div>;
 }
