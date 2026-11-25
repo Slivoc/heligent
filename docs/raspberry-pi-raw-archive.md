@@ -226,17 +226,17 @@ ADSB_ARCHIVE_API_TOKEN=the-same-random-token
 Restart `adsb-web`. The Data control screen then enables two choices:
 
 - **Direct from ADSB.lol** — the existing GitHub release path;
-- **Raspberry Pi archive API** — discovers and downloads the Pi's verified copy.
+- **Raspberry Pi first** — tries the Pi's verified copy, then downloads from ADSB.lol if the Pi or the requested day is unavailable.
 
-The selected source is stored on every queue item and remains stable across app
-or worker restarts. There is deliberately no automatic fallback: if a selected
-day is absent from the Pi, the job fails clearly and can be retried with the
-direct source. In both modes, the main machine downloads into its normal
-transient raw directory, verifies SHA-256, parses locally, and applies the
-existing raw-retention setting.
+When the Pi is configured, Pi first is the default for new requests. Each queue
+item stores the selected preference, and a successful result records the source
+that supplied the data. Authentication, TLS, integrity and processing errors
+still fail the job. Both sources use the existing download verification and
+raw-retention checks. Fallback downloads resume separately from any partial Pi
+transfer.
 
 After a parser upgrade, Data control can rebuild a date range from the Pi: set
-the source to **Raspberry Pi archive API**, choose up to 31 days, and enable
+the source to **Raspberry Pi first**, choose up to 31 days, and enable
 **Reprocess completed dates in this range**. The VPS processes the dates
 sequentially and deletes only its transferred copy after each successful
 commit. The retained Pi release is never changed. The flight/visit rebuild and
@@ -253,7 +253,8 @@ adsb-ingest ingest-day \
 ```
 
 The URL and token are read from `ADSB_ARCHIVE_API_URL` and
-`ADSB_ARCHIVE_API_TOKEN`. Direct mode remains the default.
+`ADSB_ARCHIVE_API_TOKEN`. Without both settings, direct mode is the default.
+Use `--raw-source direct` to bypass the Pi on a configured instance.
 
 ## Copying an archived day manually
 

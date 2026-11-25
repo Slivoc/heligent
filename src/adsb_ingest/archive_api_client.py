@@ -17,13 +17,17 @@ class ArchiveApiError(RuntimeError):
     """The configured raw-archive API returned an invalid or unavailable day."""
 
 
+class ArchiveDayUnavailable(ArchiveApiError):
+    """The Pi has no verified copy of the requested day."""
+
+
 class ArchiveApiClient:
     def __init__(
         self,
         base_url: str,
         token: str,
         *,
-        timeout: float = 60.0,
+        timeout: float | tuple[float, float] = 60.0,
     ) -> None:
         normalized = base_url.strip().rstrip("/")
         parsed = urlparse(normalized)
@@ -59,7 +63,7 @@ class ArchiveApiClient:
         url = f"{self.base_url}/v1/days/{utc_date.isoformat()}"
         response = self.session.get(url, timeout=self.timeout)
         if response.status_code == 404:
-            raise ArchiveApiError(
+            raise ArchiveDayUnavailable(
                 f"The Raspberry Pi archive does not have a verified copy of {utc_date}"
             )
         response.raise_for_status()

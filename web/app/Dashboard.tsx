@@ -260,7 +260,9 @@ export function Dashboard() {
   const [rangeTo, setRangeTo] = useState(yesterday);
   const [keepRaw, setKeepRaw] = useState(false);
   const [reprocessRange, setReprocessRange] = useState(false);
-  const [rawSource, setRawSource] = useState<"DIRECT" | "PI">("DIRECT");
+  const [sourceChoice, setRawSource] = useState<"DIRECT" | "PI" | null>(null);
+  const piConfigured = overview?.ingestion_sources.some((source) => source.code === "PI" && source.available);
+  const rawSource = sourceChoice ?? (piConfigured ? "PI" : "DIRECT");
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -446,10 +448,10 @@ export function Dashboard() {
             <select value={rawSource} onChange={(event) => setRawSource(event.target.value as "DIRECT" | "PI")}>
               {(overview?.ingestion_sources ?? [
                 { code: "DIRECT" as const, label: "Direct from ADSB.lol", available: true },
-                { code: "PI" as const, label: "Raspberry Pi archive API", available: false },
+                { code: "PI" as const, label: "Raspberry Pi first", available: false },
               ]).map((source) => <option key={source.code} value={source.code} disabled={!source.available}>{source.label}{source.available ? "" : " (not configured)"}</option>)}
             </select>
-            <small>{rawSource === "PI" ? "Pull the verified release from the private Pi archive." : "Use the existing ADSB.lol release download path."}</small>
+            <small>{rawSource === "PI" ? "Use ADSB.lol directly if the Pi or the requested day is unavailable." : "Download the release directly from ADSB.lol."}</small>
           </label>
           <form className="date-form" onSubmit={queueOne}>
             <label>Single UTC date<input type="date" value={quickDate} max={yesterday} onChange={(event) => setQuickDate(event.target.value)} required /></label>

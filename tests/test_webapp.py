@@ -336,7 +336,7 @@ class WebAppTests(unittest.TestCase):
                 {
                     "available": False,
                     "code": "PI",
-                    "label": "Raspberry Pi archive API",
+                    "label": "Raspberry Pi first",
                 },
             ],
         )
@@ -506,6 +506,18 @@ class WebAppTests(unittest.TestCase):
             configured_store.queued,
             [(date(2026, 8, 19), False, False, "PI")],
         )
+        for day, options in (
+            ("2026-08-18", {}),
+            ("2026-08-17", {"raw_source": "DIRECT"}),
+        ):
+            response = client.post(
+                "/api/queue/date", json={"date": day, **options}, headers=self.headers,
+            )
+            self.assertEqual(response.status_code, 202)
+        self.assertEqual(configured_store.queued[1:], [
+            (date(2026, 8, 18), False, False, "PI"),
+            (date(2026, 8, 17), False, False, "DIRECT"),
+        ])
 
     def test_manual_customer_site_mapping_and_activity_endpoints(self) -> None:
         sites = self.client.get("/api/company-sites?q=A2B&tracked=false")

@@ -10,15 +10,17 @@ from datetime import date
 from pathlib import Path
 from typing import Iterator
 
-from .adsblol import GitHubClient
-from .archive_api_client import ArchiveApiClient
+import requests
+
+from .adsblol import DayReleases, GitHubClient
+from .archive_api_client import ArchiveApiClient, ArchiveDayUnavailable
 from .airports import (
     AirportIndex,
     ensure_airports_csv,
     load_airport_catalog,
 )
 from .archive import iter_trace_payloads
-from .downloader import AssetDownloader
+from .downloader import AssetDownloader, DownloadResult
 from .postgres import PostgresStore
 from .summarize import ActivityConfig, DERIVATION_VERSION, TraceSummary, summarize_trace
 
@@ -28,6 +30,33 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SCHEMA = PROJECT_ROOT / "schema" / "phase2.sql"
 MAX_INVALID_AIRCRAFT_TRACES = 10
 RAW_SOURCES = frozenset({"DIRECT", "PI"})
+PI_DISCOVERY_TIMEOUT = (5.0, 15.0)
+PI_DOWNLOAD_TIMEOUT = (5.0, 120.0)
+
+
+def _pi_unavailable(error: Exception) -> bool:
+    if isinstance(error, requests.exceptions.SSLError):
+        return False
+    if isinstance(error, (ArchiveDayUnavailable, requests.ConnectionError, requests.Timeout,
+                          requests.exceptions.ChunkedEncodingError)):
+        return True
+    if isinstance(error, requests.HTTPError) and error.response is not None:
+        code = error.response.status_code
+        return code in {404, 408, 429} or 500 <= code < 600
+    return False
+
+
+def _discover_direct_day(utc_date: date) -> DayReleases:
+    with GitHubClient() as github_client:
+        return github_client.discover_day(utc_date)
+
+
+def _fallback_discovery(utc_date: date, error: Exception) -> DayReleases:
+    LOGGER.warning(
+        "Pi archive unavailable for %s (%s); trying ADSB.lol directly",
+        utc_date, type(error).__name__,
+    )
+    return _discover_direct_day(utc_date)
 
 
 def _database_url(value: str | None) -> str:
@@ -67,28 +96,33 @@ def run_ingestion(args: argparse.Namespace) -> dict[str, object]:
         LOGGER.info("%s is already processed; use --reprocess to replace it", args.utc_date)
         return {"status": "SKIPPED_ALREADY_PROCESSED", "dataset": existing}
 
-    raw_source = str(getattr(args, "raw_source", "DIRECT")).upper()
+    archive_api_url = getattr(args, "archive_api_url", None) or os.getenv("ADSB_ARCHIVE_API_URL")
+    archive_api_token = getattr(args, "archive_api_token", None) or os.getenv("ADSB_ARCHIVE_API_TOKEN")
+    configured_source = "PI" if archive_api_url and archive_api_token else "DIRECT"
+    requested_source = str(getattr(args, "raw_source", None) or configured_source).upper()
+    raw_source = requested_source
     if raw_source not in RAW_SOURCES:
         raise ValueError(f"Unsupported raw download source: {raw_source}")
     download_headers: dict[str, str] | None = None
     if raw_source == "PI":
-        archive_api_url = getattr(args, "archive_api_url", None) or os.getenv(
-            "ADSB_ARCHIVE_API_URL"
-        )
-        archive_api_token = getattr(args, "archive_api_token", None) or os.getenv(
-            "ADSB_ARCHIVE_API_TOKEN"
-        )
         if not archive_api_url or not archive_api_token:
             raise ValueError(
                 "Raspberry Pi source requires ADSB_ARCHIVE_API_URL and "
                 "ADSB_ARCHIVE_API_TOKEN"
             )
-        with ArchiveApiClient(archive_api_url, archive_api_token) as archive_client:
-            discovery = archive_client.discover_day(args.utc_date)
-            download_headers = archive_client.download_headers
+        try:
+            with ArchiveApiClient(
+                archive_api_url, archive_api_token, timeout=PI_DISCOVERY_TIMEOUT,
+            ) as archive_client:
+                discovery = archive_client.discover_day(args.utc_date)
+                download_headers = archive_client.download_headers
+        except (ArchiveDayUnavailable, requests.RequestException) as exc:
+            if not _pi_unavailable(exc):
+                raise
+            discovery = _fallback_discovery(args.utc_date, exc)
+            raw_source = "DIRECT"
     else:
-        with GitHubClient() as github_client:
-            discovery = github_client.discover_day(args.utc_date)
+        discovery = _discover_direct_day(args.utc_date)
     dataset_day_id = store.upsert_dataset(discovery)
     store.reconcile_interrupted(dataset_day_id)
 
@@ -118,13 +152,26 @@ def run_ingestion(args: argparse.Namespace) -> dict[str, object]:
             last_progress_at = now
 
     download_started = time.monotonic()
+
+    def download_release() -> DownloadResult:
+        if raw_source == "PI":
+            with AssetDownloader(timeout=PI_DOWNLOAD_TIMEOUT, headers=download_headers) as downloader:
+                return downloader.download_release(discovery.preferred, raw_root, progress=progress)
+        # Keep resumed public downloads separate from any partial Pi files.
+        target_root = raw_root / "adsblol-fallback" if requested_source == "PI" else raw_root
+        with AssetDownloader() as downloader:
+            return downloader.download_release(discovery.preferred, target_root, progress=progress)
+
     try:
-        with AssetDownloader(headers=download_headers) as downloader:
-            download = downloader.download_release(
-                discovery.preferred,
-                raw_root,
-                progress=progress,
-            )
+        try:
+            download = download_release()
+        except requests.RequestException as exc:
+            if raw_source != "PI" or not _pi_unavailable(exc):
+                raise
+            discovery = _fallback_discovery(args.utc_date, exc)
+            store.upsert_dataset(discovery)
+            raw_source = "DIRECT"
+            download = download_release()
         store.finish_download(
             dataset_day_id,
             download_job_id,
@@ -264,8 +311,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "--raw-source",
         choices=("direct", "pi"),
-        default="direct",
-        help="Fetch from ADSB.lol directly or from the configured Pi archive API",
+        help="Prefer the configured Pi with ADSB.lol fallback, or fetch directly",
     )
     ingest.add_argument(
         "--archive-api-url",

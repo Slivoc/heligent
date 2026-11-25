@@ -32,11 +32,11 @@ adsb-web
 continues to hold the DOWNLOAD and PROCESS/REPROCESS stage history. A partial
 unique index permits only one queued/running request for a date.
 
-Each queue item persists its `raw_source` (`DIRECT` or `PI`), so restarts and
-retries keep using the source selected by the administrator. `DIRECT` remains
-the default. The worker does not silently fall back between sources: a missing
-Pi archive or an unreachable Pi fails visibly and can then be retried from the
-other source.
+Each queue item persists its source preference (`DIRECT` or `PI`). When the Pi
+is configured, new requests default to `PI` and the worker tries ADSB.lol
+directly if the Pi or its verified copy is unavailable. The worker logs the
+fallback and records the actual source in the successful result. Requests that
+explicitly select `DIRECT` go straight to ADSB.lol.
 
 The worker claims the oldest item with `FOR UPDATE SKIP LOCKED`. A PostgreSQL
 advisory lock permits only one sequential worker even if two web processes are
