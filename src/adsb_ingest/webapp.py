@@ -158,7 +158,7 @@ def _parse_month(value: str | None) -> tuple[int, int]:
 
 
 def _parse_raw_source(value: Any, *, pi_configured: bool) -> str:
-    source = "DIRECT" if value is None else str(value).strip().upper()
+    source = ("PI" if pi_configured else "DIRECT") if value is None else str(value).strip().upper()
     if source not in {"DIRECT", "PI"}:
         raise ValueError("raw_source must be DIRECT or PI")
     if source == "PI" and not pi_configured:
@@ -494,7 +494,7 @@ def create_app(
             },
             {
                 "code": "PI",
-                "label": "Raspberry Pi archive API",
+                "label": "Raspberry Pi first",
                 "available": pi_source_configured,
             },
         ]

@@ -46,7 +46,7 @@ def _valid_digest(path: Path, asset: ReleaseAsset) -> bool:
 class AssetDownloader:
     def __init__(
         self,
-        timeout: float = 120.0,
+        timeout: float | tuple[float, float] = 120.0,
         chunk_bytes: int = 8 * 1024 * 1024,
         *,
         headers: Mapping[str, str] | None = None,
